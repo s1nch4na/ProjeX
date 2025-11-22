@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Hide horizontal scrollbar for carousels */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Optional small utility: subtle card background for light mode */
+:root {
+  --page-bg: #f5f7fc; /* light background */
+  --nav-bg: #0f1629;  /* deep navy */
+  --search-bg: #1b2337;
+  --accent: #7c3aed; /* purple */
+  --card: #ffffff;
+  --muted: #6b7280;
+}
+
+/* small body baseline for consistent font rendering */
+body { background: var(--page-bg); color: #101624; }
