@@ -59,7 +59,7 @@ export default function StudentDashboard() {
       <div className="mb-6">
         <h3 className="text-lg font-semibold mb-3">Featured</h3>
         <HorizontalScroller>
-          {projects.slice(0, 8).map((p) => (
+          {projects.slice(0, 18).map((p) => (
             <div key={p.id} className="min-w-[320px]">
               <ProjectCard {...p} />
             </div>

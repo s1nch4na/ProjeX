@@ -4,7 +4,8 @@ import HorizontalScroller from "../components/HorizontalScroller";
 import ProjectCard from "../components/ProjectCard";
 import ProfileCard from "../components/ProfileCard";
 import { Link } from "react-router-dom";
-import { projects } from "../utils/mockData";
+import { projects, profiles } from "../utils/mockData";
+
 
 export default function Landing() {
   return (
@@ -15,10 +16,12 @@ export default function Landing() {
         <h1 className="text-4xl font-bold mb-3">
           Connect students with local businesses — fast.
         </h1>
+
         <p className="text-gray-600 mb-6">
-          Post a project, receive student submissions, collaborate and finish — 
+          Post a project, receive student submissions, collaborate and finish —
           low cost, real experience.
         </p>
+
         <div className="flex gap-4">
           <Link
             to="/login"
@@ -26,6 +29,7 @@ export default function Landing() {
           >
             Get started
           </Link>
+
           <Link
             to="/student"
             className="px-6 py-3 border rounded-lg"
@@ -42,15 +46,10 @@ export default function Landing() {
         </h2>
 
         <HorizontalScroller>
-          {projects.slice(0, 6).map((project) => (
-            <ProjectCard
-              key={project.id}
-              id={project.id}
-              title={project.title}
-              meta={project.meta}
-              price={project.price}
-              image={project.image}
-            />
+          {projects.slice(0, 5).map((project) => (
+            <div key={project.id} className="min-w-[320px]">
+              <ProjectCard {...project} />
+            </div>
           ))}
         </HorizontalScroller>
       </section>
@@ -62,13 +61,10 @@ export default function Landing() {
         </h2>
 
         <HorizontalScroller>
-          {[...Array(8)].map((_, i) => (
-            <ProfileCard
-              key={i}
-              name={`Creator ${i + 1}`}
-              role="Student Designer"
-              skills={["Logo", "Poster"]}
-            />
+          {profiles.slice(0, 5).map((profile) => (
+            <div key={profile.id} className="min-w-[250px]">
+              <ProfileCard {...profile} />
+            </div>
           ))}
         </HorizontalScroller>
       </section>
