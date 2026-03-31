@@ -2,7 +2,13 @@ import React, { useRef } from "react";
 import { Link } from "react-router-dom";
 import ProjectCard from "../components/ProjectCard";
 import ProfileCard from "../components/ProfileCard";
+<<<<<<< HEAD
 import { projects, profiles } from "../utils/mockData";
+=======
+import { Link } from "react-router-dom";
+import { projects, profiles } from "../utils/mockData";
+
+>>>>>>> a91243805d08f328402fd2e4be2d22368deee673
 
 export default function Landing() {
   const projectRef = useRef(null);
@@ -15,6 +21,7 @@ export default function Landing() {
   };
 
   return (
+<<<<<<< HEAD
     <div className="min-h-screen text-[#0f172a]">
 
       {/* HERO (DARK GRADIENT LIKE STARTUP SITES) */}
@@ -48,6 +55,51 @@ export default function Landing() {
             </Link>
           </div>
         </div>
+=======
+    <div className="px-12 py-10 bg-[var(--page-bg)] text-[#101624] min-h-[80vh]">
+      
+      {/* HERO */}
+      <header className="max-w-4xl">
+        <h1 className="text-4xl font-bold mb-3">
+          Connect students with local businesses — fast.
+        </h1>
+
+        <p className="text-gray-600 mb-6">
+          Post a project, receive student submissions, collaborate and finish —
+          low cost, real experience.
+        </p>
+
+        <div className="flex gap-4">
+          <Link
+            to="/login"
+            className="px-6 py-3 bg-[#7c3aed] text-white rounded-lg"
+          >
+            Get started
+          </Link>
+
+          <Link
+            to="/student"
+            className="px-6 py-3 border rounded-lg"
+          >
+            Explore work
+          </Link>
+        </div>
+      </header>
+
+      {/* FEATURED PROJECTS */}
+      <section className="mt-12">
+        <h2 className="text-xl font-semibold mb-3">
+          Featured Projects
+        </h2>
+
+        <HorizontalScroller>
+          {projects.slice(0, 5).map((project) => (
+            <div key={project.id} className="min-w-[320px]">
+              <ProjectCard {...project} />
+            </div>
+          ))}
+        </HorizontalScroller>
+>>>>>>> a91243805d08f328402fd2e4be2d22368deee673
       </section>
 
       {/* FEATURED PROJECTS */}
@@ -156,6 +208,7 @@ export default function Landing() {
           Start building real projects today
         </h2>
 
+<<<<<<< HEAD
         <p className="opacity-90 mb-8">
           Join ProjeX and collaborate with startups.
         </p>
@@ -166,6 +219,15 @@ export default function Landing() {
         >
           Get Started
         </Link>
+=======
+        <HorizontalScroller>
+          {profiles.slice(0, 5).map((profile) => (
+            <div key={profile.id} className="min-w-[250px]">
+              <ProfileCard {...profile} />
+            </div>
+          ))}
+        </HorizontalScroller>
+>>>>>>> a91243805d08f328402fd2e4be2d22368deee673
       </section>
 
     </div>
