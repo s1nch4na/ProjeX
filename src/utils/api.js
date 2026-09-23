@@ -1,6 +1,6 @@
 // src/utils/api.js
 
-const API_URL = "http://localhost:5000";
+const API_URL = "https://projex-api2m.onrender.com";
 
 // ==========================================
 // 1. LOGIN USER
@@ -23,19 +23,17 @@ export async function loginUser(userData) {
       return null;
     }
 
-    // Save logged-in user
     localStorage.setItem(
       "projex_user",
       JSON.stringify(data.user)
     );
 
     return data.user;
-
   } catch (err) {
     console.error("Backend login error:", err);
 
     alert(
-      "Could not connect to the backend server. Make sure node server.js is running!"
+      "Could not connect to the backend server. Please try again."
     );
 
     return null;
@@ -64,19 +62,17 @@ export async function signupUser(userData) {
       return null;
     }
 
-    // Save newly created user
     localStorage.setItem(
       "projex_user",
       JSON.stringify(data.user)
     );
 
     return data.user;
-
   } catch (err) {
     console.error("Backend signup error:", err);
 
     alert(
-      "Could not connect to the backend server. Make sure node server.js is running!"
+      "Could not connect to the backend server. Please try again."
     );
 
     return null;
@@ -94,11 +90,9 @@ export async function completeProfile(profileData) {
       `${API_URL}/api/profile/onboard`,
       {
         method: "POST",
-
         headers: {
           "Content-Type": "application/json",
         },
-
         body: JSON.stringify(profileData),
       }
     );
@@ -111,21 +105,20 @@ export async function completeProfile(profileData) {
       );
     }
 
-    // Update stored user with the completed profile
+    // Update stored user with completed profile
     if (data.user) {
       localStorage.setItem(
         "projex_user",
         JSON.stringify(data.user)
       );
+
+      // Tell Navbar and other components that user data changed
+      window.dispatchEvent(new Event("projex-auth-change"));
     }
 
     return data;
-
   } catch (error) {
-    console.error(
-      "Profile onboarding error:",
-      error
-    );
+    console.error("Profile onboarding error:", error);
 
     alert(
       error.message ||
