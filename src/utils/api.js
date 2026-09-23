@@ -1,6 +1,6 @@
 // src/utils/api.js
 
-const API_URL = "https://projex-api2m.onrender.com";
+const API_URL = "https://projex-ap2m.onrender.com";
 
 // ==========================================
 // 1. LOGIN USER
