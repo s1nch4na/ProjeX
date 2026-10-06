@@ -28,6 +28,8 @@ export async function loginUser(userData) {
       JSON.stringify(data.user)
     );
 
+    window.dispatchEvent(new Event("projex-auth-change"));
+
     return data.user;
   } catch (err) {
     console.error("Backend login error:", err);
@@ -67,6 +69,8 @@ export async function signupUser(userData) {
       JSON.stringify(data.user)
     );
 
+    window.dispatchEvent(new Event("projex-auth-change"));
+
     return data.user;
   } catch (err) {
     console.error("Backend signup error:", err);
@@ -105,15 +109,15 @@ export async function completeProfile(profileData) {
       );
     }
 
-    // Update stored user with completed profile
     if (data.user) {
       localStorage.setItem(
         "projex_user",
         JSON.stringify(data.user)
       );
 
-      // Tell Navbar and other components that user data changed
-      window.dispatchEvent(new Event("projex-auth-change"));
+      window.dispatchEvent(
+        new Event("projex-auth-change")
+      );
     }
 
     return data;
@@ -126,5 +130,87 @@ export async function completeProfile(profileData) {
     );
 
     return null;
+  }
+}
+
+
+// ==========================================
+// 4. GET CREATOR PROFILE
+// ==========================================
+
+export async function getProfile(id) {
+  try {
+    const response = await fetch(
+      `${API_URL}/api/profile/${id}`
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error || "Profile not found"
+      );
+    }
+
+    return data;
+  } catch (error) {
+    console.error("Get profile error:", error);
+    throw error;
+  }
+}
+
+
+// ==========================================
+// 5. UPDATE PROFILE
+// ==========================================
+
+export async function updateProfile(id, profileData) {
+  try {
+    const response = await fetch(
+      `${API_URL}/api/profile/${id}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(profileData),
+      }
+    );
+
+    const text = await response.text();
+
+    let data;
+
+    try {
+      data = JSON.parse(text);
+    } catch {
+      console.error("❌ Backend returned non-JSON:", text);
+      throw new Error(
+        "Backend returned an invalid response. Check the deployed backend URL."
+      );
+    }
+
+    if (!response.ok || !data.success) {
+      throw new Error(
+        data.error || "Failed to update profile."
+      );
+    }
+
+    if (data.user) {
+      localStorage.setItem(
+        "projex_user",
+        JSON.stringify(data.user)
+      );
+
+      window.dispatchEvent(
+        new Event("projex-auth-change")
+      );
+    }
+
+    return data;
+
+  } catch (error) {
+    console.error("❌ Update profile error:", error);
+    throw error;
   }
 }

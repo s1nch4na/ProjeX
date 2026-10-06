@@ -138,9 +138,9 @@ export default function LoginPage() {
       // PROFILE COMPLETE
       // ================================
       if (user.role === "investor") {
-        navigate("/investor");
+       navigate("/project-owner");
       } else {
-        navigate("/student");
+      navigate("/student");
       }
 
     } catch (error) {
@@ -203,8 +203,8 @@ export default function LoginPage() {
 
             <div className="bg-black text-white px-3 py-1.5 text-xs tracking-wide">
               {role === "student"
-                ? "STUDENT PORTAL"
-                : "INVESTOR PORTAL"}
+              ? "STUDENT PORTAL"
+              : "PROJECT OWNER PORTAL"}
             </div>
 
             <button
@@ -261,7 +261,7 @@ export default function LoginPage() {
                       : "bg-transparent hover:bg-black hover:text-white"
                   }`}
                 >
-                  INVESTOR
+                  PROJECT OWNER
                 </button>
 
               </div>
