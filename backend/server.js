@@ -2,8 +2,38 @@ import express from 'express';
 import cors from 'cors';
 import pool from './db.js';
 import bcrypt from 'bcrypt';
+import multer from 'multer';
+import { v2 as cloudinary } from 'cloudinary';
 
 const app = express();
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+const projectImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+  },
+  fileFilter: (req, file, callback) => {
+    const allowedTypes = [
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+    ];
+
+    if (!allowedTypes.includes(file.mimetype)) {
+      return callback(
+        new Error('Only JPEG, PNG, and WebP images are allowed.')
+      );
+    }
+
+    callback(null, true);
+  },
+});
 
 app.use(
   cors({
@@ -375,6 +405,220 @@ app.put('/api/profile/:id', async (req, res) => {
   }
 });
 
+ 
+// =====================================================
+// PROJECT CREATION AND LISTING
+// =====================================================
+
+function handleProjectImageUpload(req, res, next) {
+  projectImageUpload.single('image')(req, res, (err) => {
+    if (!err) return next();
+
+    return res.status(400).json({
+      success: false,
+      error: err.code === 'LIMIT_FILE_SIZE'
+        ? 'Image must be 5 MB or smaller.'
+        : err.message || 'Invalid image upload.',
+    });
+  });
+}
+
+// CREATE PROJECT
+app.post(
+  '/api/projects',
+  handleProjectImageUpload,
+  async (req, res) => {
+    const {
+      user_id,
+      title,
+      description,
+      budget,
+      deadline,
+      project_type,
+    } = req.body;
+
+    const userId = Number(user_id);
+    const price = Number(budget);
+
+    if (!Number.isSafeInteger(userId) || userId <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Please log in again before posting a project.',
+      });
+    }
+
+    if (!title?.trim() || !description?.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Title and description are required.',
+      });
+    }
+
+    if (
+      budget === undefined ||
+      budget === '' ||
+      !Number.isFinite(price) ||
+      price < 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: 'Enter a valid non-negative budget.',
+      });
+    }
+
+    try {
+      const owner = await pool.query(
+        'SELECT id FROM users WHERE id = $1',
+        [userId]
+      );
+
+      if (owner.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Project Owner account was not found.',
+        });
+      }
+
+      let imageUrl = null;
+
+      if (req.file) {
+        if (
+          !process.env.CLOUDINARY_CLOUD_NAME ||
+          !process.env.CLOUDINARY_API_KEY ||
+          !process.env.CLOUDINARY_API_SECRET
+        ) {
+          return res.status(503).json({
+            success: false,
+            error: 'Image storage is not configured yet.',
+          });
+        }
+
+        const base64Image = req.file.buffer.toString('base64');
+        const dataUri =
+          `data:${req.file.mimetype};base64,${base64Image}`;
+
+        const uploadedImage = await cloudinary.uploader.upload(
+          dataUri,
+          {
+            folder: 'projex/projects',
+            resource_type: 'image',
+          }
+        );
+
+        imageUrl = uploadedImage.secure_url;
+      }
+
+      const category = project_type?.trim() || 'General';
+
+      const result = await pool.query(
+        `INSERT INTO projects
+          (
+            user_id,
+            title,
+            description,
+            meta,
+            price,
+            deadline,
+            project_type,
+            image_url
+          )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING
+           id, user_id, title, description, meta,
+           price, deadline, project_type, image_url, created_at`,
+        [
+          userId,
+          title.trim(),
+          description.trim(),
+          category,
+          price,
+          deadline?.trim() || '',
+          category,
+          imageUrl,
+        ]
+      );
+
+      return res.status(201).json({
+        success: true,
+        project: result.rows[0],
+      });
+    } catch (err) {
+      console.error('Create project error:', err);
+
+      return res.status(500).json({
+        success: false,
+        error: 'Could not create the project. Please try again.',
+      });
+    }
+  }
+);
+
+// LIST PROJECTS — for the Student Dashboard
+app.get('/api/projects', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT
+         id, user_id, title, description, meta,
+         price, deadline, project_type, image_url, created_at
+       FROM projects
+       ORDER BY created_at DESC, id DESC`
+    );
+
+    return res.json({
+      success: true,
+      projects: result.rows,
+    });
+  } catch (err) {
+    console.error('List projects error:', err);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Could not load projects.',
+    });
+  }
+});
+
+// GET ONE PROJECT — for project details
+app.get('/api/projects/:id', async (req, res) => {
+  const projectId = Number(req.params.id);
+
+  if (!Number.isSafeInteger(projectId) || projectId <= 0) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid project ID.',
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT
+         id, user_id, title, description, meta,
+         price, deadline, project_type, image_url, created_at
+       FROM projects
+       WHERE id = $1`,
+      [projectId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Project not found.',
+      });
+    }
+
+    return res.json({
+      success: true,
+      project: result.rows[0],
+    });
+  } catch (err) {
+    console.error('Get project error:', err);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Could not load project details.',
+    });
+  }
+});
 
 // =====================================================
 // PROJECT APPLICATION
@@ -674,6 +918,40 @@ app.post('/api/messages', async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Could not send message."
+    });
+  }
+});
+
+
+/* GET ALL PROJECTS */
+app.get("/api/projects", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        id,
+        user_id,
+        title,
+        description,
+        meta,
+        price,
+        deadline,
+        project_type,
+        image_url,
+        created_at
+      FROM projects
+      ORDER BY created_at DESC, id DESC
+    `);
+
+    res.json({
+      success: true,
+      projects: result.rows,
+    });
+  } catch (error) {
+    console.error("Fetch projects error:", error);
+
+    res.status(500).json({
+      success: false,
+      error: "Could not load projects.",
     });
   }
 });
