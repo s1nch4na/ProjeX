@@ -7,7 +7,10 @@ const app = express();
 
 app.use(
   cors({
-    origin: "https://proje-x-five.vercel.app",
+    origin: [
+      "https://proje-x-five.vercel.app",
+      "http://localhost:5173"
+    ],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
@@ -431,6 +434,249 @@ app.post('/api/projects/apply', async (req, res) => {
   }
 });
 
+// =====================================================
+// MESSAGING: SHARED CONVERSATIONS AND MESSAGES
+// =====================================================
+
+function validUserId(value) {
+  const id = Number(value);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+// GET INBOX
+app.get('/api/messages/conversations', async (req, res) => {
+  const userId = validUserId(req.query.userId);
+
+  if (!userId) {
+    return res.status(400).json({
+      success: false,
+      error: "A valid userId is required."
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT
+         c.id,
+         c.updated_at,
+         other.id AS other_user_id,
+         other.name AS other_name,
+         other.role AS other_role,
+         other.position AS other_position,
+         other.avatar_name AS other_avatar,
+         latest.body AS last_message,
+         latest.created_at AS last_message_at,
+         (
+           SELECT COUNT(*)::int
+           FROM messages m
+           WHERE m.conversation_id = c.id
+             AND m.sender_id <> $1
+             AND m.read_at IS NULL
+         ) AS unread_count
+       FROM conversations c
+       JOIN users other
+         ON other.id = CASE
+           WHEN c.user_one_id = $1 THEN c.user_two_id
+           ELSE c.user_one_id
+         END
+       LEFT JOIN LATERAL (
+         SELECT body, created_at
+         FROM messages
+         WHERE conversation_id = c.id
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1
+       ) latest ON TRUE
+       WHERE c.user_one_id = $1 OR c.user_two_id = $1
+       ORDER BY COALESCE(latest.created_at, c.created_at) DESC`,
+      [userId]
+    );
+
+    res.json({
+      success: true,
+      conversations: result.rows
+    });
+  } catch (err) {
+    console.error("Get conversations error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Could not load conversations."
+    });
+  }
+});
+
+
+// START OR REUSE A CONVERSATION
+app.post('/api/messages/conversations', async (req, res) => {
+  const userId = validUserId(req.body.userId);
+  const otherUserId = validUserId(req.body.otherUserId);
+
+  if (!userId || !otherUserId || userId === otherUserId) {
+    return res.status(400).json({
+      success: false,
+      error: "Two different valid user IDs are required."
+    });
+  }
+
+  const userOneId = Math.min(userId, otherUserId);
+  const userTwoId = Math.max(userId, otherUserId);
+
+  try {
+    const users = await pool.query(
+      `SELECT id FROM users WHERE id = ANY($1::int[])`,
+      [[userOneId, userTwoId]]
+    );
+
+    if (users.rows.length !== 2) {
+      return res.status(404).json({
+        success: false,
+        error: "One or both users do not exist."
+      });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO conversations (user_one_id, user_two_id)
+       VALUES ($1, $2)
+       ON CONFLICT (user_one_id, user_two_id)
+       DO UPDATE SET user_one_id = EXCLUDED.user_one_id
+       RETURNING id, user_one_id, user_two_id, created_at`,
+      [userOneId, userTwoId]
+    );
+
+    res.json({
+      success: true,
+      conversation: result.rows[0]
+    });
+  } catch (err) {
+    console.error("Start conversation error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Could not start the conversation."
+    });
+  }
+});
+
+
+// GET MESSAGE HISTORY AND MARK RECEIVED MESSAGES AS READ
+app.get('/api/messages/conversations/:id', async (req, res) => {
+  const conversationId = validUserId(req.params.id);
+  const userId = validUserId(req.query.userId);
+
+  if (!conversationId || !userId) {
+    return res.status(400).json({
+      success: false,
+      error: "Valid conversation and user IDs are required."
+    });
+  }
+
+  try {
+    const access = await pool.query(
+      `SELECT id
+       FROM conversations
+       WHERE id = $1
+         AND (user_one_id = $2 OR user_two_id = $2)`,
+      [conversationId, userId]
+    );
+
+    if (access.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Conversation not found."
+      });
+    }
+
+    await pool.query(
+      `UPDATE messages
+       SET read_at = NOW()
+       WHERE conversation_id = $1
+         AND sender_id <> $2
+         AND read_at IS NULL`,
+      [conversationId, userId]
+    );
+
+    const result = await pool.query(
+      `SELECT id, conversation_id, sender_id, body, created_at, read_at
+       FROM messages
+       WHERE conversation_id = $1
+       ORDER BY created_at ASC, id ASC`,
+      [conversationId]
+    );
+
+    res.json({
+      success: true,
+      messages: result.rows
+    });
+  } catch (err) {
+    console.error("Get message history error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Could not load messages."
+    });
+  }
+});
+
+
+// SEND MESSAGE
+app.post('/api/messages', async (req, res) => {
+  const senderId = validUserId(req.body.senderId);
+  const conversationId = validUserId(req.body.conversationId);
+  const body = typeof req.body.body === "string"
+    ? req.body.body.trim()
+    : "";
+
+  if (!senderId || !conversationId || !body) {
+    return res.status(400).json({
+      success: false,
+      error: "Sender, conversation, and message text are required."
+    });
+  }
+
+  if (body.length > 5000) {
+    return res.status(400).json({
+      success: false,
+      error: "Messages cannot exceed 5000 characters."
+    });
+  }
+
+  try {
+    const access = await pool.query(
+      `SELECT id
+       FROM conversations
+       WHERE id = $1
+         AND (user_one_id = $2 OR user_two_id = $2)`,
+      [conversationId, senderId]
+    );
+
+    if (access.rows.length === 0) {
+      return res.status(403).json({
+        success: false,
+        error: "You cannot send messages in this conversation."
+      });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO messages (conversation_id, sender_id, body)
+       VALUES ($1, $2, $3)
+       RETURNING id, conversation_id, sender_id, body, created_at, read_at`,
+      [conversationId, senderId, body]
+    );
+
+    await pool.query(
+      `UPDATE conversations SET updated_at = NOW() WHERE id = $1`,
+      [conversationId]
+    );
+
+    res.status(201).json({
+      success: true,
+      message: result.rows[0]
+    });
+  } catch (err) {
+    console.error("Send message error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Could not send message."
+    });
+  }
+});
 
 // =====================================================
 // SERVER

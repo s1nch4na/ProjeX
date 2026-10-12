@@ -214,3 +214,64 @@ export async function updateProfile(id, profileData) {
     throw error;
   }
 }
+
+// =====================================================
+// MESSAGING API
+// =====================================================
+
+
+export async function getMessageConversations(userId) {
+  const response = await fetch(
+    `${API_URL}/api/messages/conversations?userId=${encodeURIComponent(userId)}`
+  );
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not load conversations.");
+  }
+
+  return data.conversations;
+}
+
+export async function startMessageConversation(userId, otherUserId) {
+  const response = await fetch(`${API_URL}/api/messages/conversations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId, otherUserId }),
+  });
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not start conversation.");
+  }
+
+  return data.conversation;
+}
+
+export async function getConversationMessages(conversationId, userId) {
+  const response = await fetch(
+    `${API_URL}/api/messages/conversations/${encodeURIComponent(conversationId)}?userId=${encodeURIComponent(userId)}`
+  );
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not load messages.");
+  }
+
+  return data.messages;
+}
+
+export async function sendChatMessage(conversationId, senderId, body) {
+  const response = await fetch(`${API_URL}/api/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conversationId, senderId, body }),
+  });
+  const data = await response.json();
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not send message.");
+  }
+
+  return data.message;
+}
