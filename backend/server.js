@@ -428,6 +428,7 @@ app.post(
   '/api/projects',
   handleProjectImageUpload,
   async (req, res) => {
+    console.log("🔥 POST /api/projects HIT");
     const {
       user_id,
       title,
