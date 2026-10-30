@@ -7,9 +7,7 @@ import HorizontalScroller from "../../components/HorizontalScroller";
 
 import StudentChallenges from "./StudentChallenges";
 import StudentChat from "./StudentChat";
-
-const API_URL =
-  import.meta.env.VITE_API_URL || "http://localhost:5000";
+import { apiRequest } from "../../utils/api";
 
 export default function StudentDashboard() {
   const navigate = useNavigate();
@@ -42,7 +40,7 @@ export default function StudentDashboard() {
         setProjectsLoading(true);
         setProjectsError("");
 
-        const response = await fetch(`${API_URL}/api/projects`);
+        const response = await apiRequest("/api/projects");
         const data = await response.json();
 
         if (!response.ok || !data.success) {

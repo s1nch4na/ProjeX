@@ -1,8 +1,6 @@
 
 import React, { useEffect, useState } from "react";
-
-const API_URL =
-  import.meta.env.VITE_API_URL || "http://localhost:5000";
+import { apiRequest } from "../../utils/api";
 
 const initialForm = {
   title: "",
@@ -100,7 +98,7 @@ export default function PostProject() {
         payload.append("image", imageFile);
       }
 
-      const response = await fetch(`${API_URL}/api/projects`, {
+      const response = await apiRequest("/api/projects", {
         method: "POST",
         body: payload,
       });

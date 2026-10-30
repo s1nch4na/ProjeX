@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import ProjectApplicationModal from "../components/ProjectApplicationModal";
-
-const API_URL =
-  import.meta.env.VITE_API_URL || "http://localhost:5000";
+import { apiRequest } from "../utils/api";
 
 export default function ProjectDetails() {
   const { id } = useParams();
@@ -32,8 +30,8 @@ export default function ProjectDetails() {
       setIsApplyModalOpen(false);
 
       try {
-        const response = await fetch(
-          `${API_URL}/api/projects/${encodeURIComponent(id)}`
+        const response = await apiRequest(
+          `/api/projects/${encodeURIComponent(id)}`
         );
         const data = await response.json();
 

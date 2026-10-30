@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import ProfileCard from "../../components/ProfileCard";
 import HorizontalScroller from "../../components/HorizontalScroller";
 import mockTalents from "../../data/mockTalents";
+import { apiRequest } from "../../utils/api";
 
 const mockChats = [
   {
@@ -45,21 +46,41 @@ export default function InvestorDashboard() {
     setIsSubmitting(true);
 
     try {
-      // TODO: Hook up your backend API call here
-      // await fetch('/api/projects', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(formData)
-      // });
-      
-      console.log("Submitting project to backend:", formData);
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      const storedUser = JSON.parse(
+        localStorage.getItem("projex_user") || "null"
+      );
+      const userId = storedUser?.id ?? storedUser?.user?.id;
+
+      if (!userId) {
+        throw new Error(
+          "Your login session was not found. Please log in again."
+        );
+      }
+
+      const payload = new FormData();
+      payload.append("user_id", String(userId));
+      payload.append("title", formData.title.trim());
+      payload.append("description", formData.description.trim());
+      payload.append("budget", formData.budget);
+      payload.append("deadline", formData.deadline);
+      payload.append("project_type", "Technology");
+
+      const response = await apiRequest("/api/projects", {
+        method: "POST",
+        body: payload,
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Could not post the project.");
+      }
 
       alert("Project posted successfully!");
       setFormData({ title: "", description: "", budget: "", deadline: "" });
       setIsModalOpen(false);
     } catch (err) {
       console.error("Error posting project:", err);
+      alert(err.message || "Something went wrong while posting your project.");
     } finally {
       setIsSubmitting(false);
     }

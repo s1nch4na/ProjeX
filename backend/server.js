@@ -85,6 +85,19 @@ async function requireAuth(req, res, next) {
   }
 }
 
+function requireRole(role) {
+  return (req, res, next) => {
+    if (req.user?.role !== role) {
+      return res.status(403).json({
+        success: false,
+        error: 'You do not have permission to access this resource.',
+      });
+    }
+
+    return next();
+  };
+}
+
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -259,9 +272,8 @@ app.post('/api/auth/login', async (req, res) => {
 // PROFILE ONBOARDING
 // =====================================================
 
-app.post('/api/profile/onboard', async (req, res) => {
+app.post('/api/profile/onboard', requireAuth, async (req, res) => {
   const {
-    email,
     name,
     position,
     bio,
@@ -311,7 +323,7 @@ app.post('/api/profile/onboard', async (req, res) => {
         organization || null,
         website || null,
         JSON.stringify(interests || []),
-        email
+        req.user.email
       ]
     );
 
@@ -412,8 +424,15 @@ app.get('/api/profile/:id', async (req, res) => {
 // UPDATE PROFILE
 // =====================================================
 
-app.put('/api/profile/:id', async (req, res) => {
+app.put('/api/profile/:id', requireAuth, async (req, res) => {
   const { id } = req.params;
+
+  if (Number(id) !== req.user.id) {
+    return res.status(403).json({
+      success: false,
+      error: "You cannot update another user's profile."
+    });
+  }
 
   const {
     name,
@@ -518,11 +537,11 @@ function handleProjectImageUpload(req, res, next) {
 // CREATE PROJECT
 app.post(
   '/api/projects',
+  requireAuth,
   handleProjectImageUpload,
   async (req, res) => {
     console.log("🔥 POST /api/projects HIT");
     const {
-      user_id,
       title,
       description,
       budget,
@@ -530,7 +549,7 @@ app.post(
       project_type,
     } = req.body;
 
-    const userId = Number(user_id);
+    const userId = req.user.id;
     const price = Number(budget);
 
     if (!Number.isSafeInteger(userId) || userId <= 0) {
@@ -717,7 +736,7 @@ app.get('/api/projects/:id', async (req, res) => {
 // PROJECT APPLICATION
 // =====================================================
 
-app.post('/api/projects/apply', async (req, res) => {
+app.post('/api/projects/apply', requireAuth, requireRole('student'), async (req, res) => {
   console.log(
     "🔥 HIT /api/projects/apply ROUTE!",
     req.body
@@ -725,13 +744,58 @@ app.post('/api/projects/apply', async (req, res) => {
 
   const {
     project_id,
-    user_email,
     application_type,
     team_members,
     cover_note
   } = req.body;
 
+  const projectId = typeof project_id === 'string'
+    ? project_id.trim()
+    : String(project_id ?? '').trim();
+  const applicationType = typeof application_type === 'string'
+    ? application_type.trim()
+    : '';
+  const teamMembers = team_members == null
+    ? null
+    : String(team_members).trim();
+  const coverNote = typeof cover_note === 'string'
+    ? cover_note.trim()
+    : '';
+
+  if (!projectId || !applicationType || !coverNote) {
+    return res.status(400).json({
+      success: false,
+      error: 'Project, application type, and cover note are required.',
+    });
+  }
+
+  if (applicationType !== 'solo' && applicationType !== 'team') {
+    return res.status(400).json({
+      success: false,
+      error: 'Application type must be solo or team.',
+    });
+  }
+
+  if (applicationType === 'team' && !teamMembers) {
+    return res.status(400).json({
+      success: false,
+      error: 'Team member details are required for team applications.',
+    });
+  }
+
   try {
+    const project = await pool.query(
+      'SELECT id FROM projects WHERE id::text = $1',
+      [projectId]
+    );
+
+    if (project.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Project not found.',
+      });
+    }
+
     const result = await pool.query(
       `INSERT INTO project_applications
        (
@@ -745,11 +809,11 @@ app.post('/api/projects/apply', async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, 'Applied')
        RETURNING *`,
       [
-        project_id,
-        user_email,
-        application_type,
-        team_members,
-        cover_note
+        projectId,
+        req.user.email,
+        applicationType,
+        teamMembers,
+        coverNote
       ]
     );
 
@@ -772,6 +836,169 @@ app.post('/api/projects/apply', async (req, res) => {
 });
 
 // =====================================================
+// PROJECT APPLICATION MANAGEMENT
+// =====================================================
+
+// GET APPLICATIONS FOR PROJECTS OWNED BY THE CURRENT OWNER
+app.get(
+  '/api/owner/applications',
+  requireAuth,
+  requireRole('investor'),
+  async (req, res) => {
+    try {
+      const result = await pool.query(
+        `SELECT
+           pa.id AS application_id,
+           pa.project_id,
+           p.title AS project_title,
+           p.description AS project_description,
+           p.meta AS project_meta,
+           p.price AS project_price,
+           p.deadline AS project_deadline,
+           p.project_type,
+           p.image_url,
+           pa.user_email,
+           pa.application_type,
+           pa.team_members,
+           pa.cover_note,
+           pa.status,
+           pa.created_at
+         FROM project_applications pa
+         JOIN projects p
+           ON p.id::text = pa.project_id
+         WHERE p.user_id = $1
+         ORDER BY pa.created_at DESC, pa.id DESC`,
+        [req.user.id]
+      );
+
+      return res.json({
+        success: true,
+        applications: result.rows,
+      });
+    } catch (err) {
+      console.error('Get owner applications error:', err);
+
+      return res.status(500).json({
+        success: false,
+        error: 'Could not load applications.',
+      });
+    }
+  }
+);
+
+// UPDATE APPLICATION STATUS FOR AN OWNED PROJECT
+app.patch(
+  '/api/owner/applications/:id',
+  requireAuth,
+  requireRole('investor'),
+  async (req, res) => {
+    const applicationId = Number(req.params.id);
+    const { status } = req.body;
+
+    if (!Number.isSafeInteger(applicationId) || applicationId <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid application ID.',
+      });
+    }
+
+    if (status !== 'Accepted' && status !== 'Rejected') {
+      return res.status(400).json({
+        success: false,
+        error: 'Status must be Accepted or Rejected.',
+      });
+    }
+
+    try {
+      const result = await pool.query(
+        `UPDATE project_applications pa
+         SET status = $1
+         FROM projects p
+         WHERE pa.id = $2
+           AND p.id::text = pa.project_id
+           AND p.user_id = $3
+         RETURNING
+           pa.id AS application_id,
+           pa.project_id,
+           pa.user_email,
+           pa.application_type,
+           pa.team_members,
+           pa.cover_note,
+           pa.status,
+           pa.created_at`,
+        [status, applicationId, req.user.id]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Application not found.',
+        });
+      }
+
+      return res.json({
+        success: true,
+        application: result.rows[0],
+      });
+    } catch (err) {
+      console.error('Update application status error:', err);
+
+      return res.status(500).json({
+        success: false,
+        error: 'Could not update application status.',
+      });
+    }
+  }
+);
+
+// GET APPLICATIONS FOR THE CURRENT STUDENT
+app.get(
+  '/api/student/applications',
+  requireAuth,
+  requireRole('student'),
+  async (req, res) => {
+    try {
+      const result = await pool.query(
+        `SELECT
+           pa.id AS application_id,
+           pa.project_id,
+           p.title AS project_title,
+           p.description AS project_description,
+           p.meta AS project_meta,
+           p.price AS project_price,
+           p.deadline AS project_deadline,
+           p.project_type,
+           p.image_url,
+           pa.user_email,
+           pa.application_type,
+           pa.team_members,
+           pa.cover_note,
+           pa.status,
+           pa.created_at
+         FROM project_applications pa
+         JOIN projects p
+           ON p.id::text = pa.project_id
+         WHERE pa.user_email = $1
+         ORDER BY pa.created_at DESC, pa.id DESC`,
+        [req.user.email]
+      );
+
+      return res.json({
+        success: true,
+        applications: result.rows,
+      });
+    } catch (err) {
+      console.error('Get student applications error:', err);
+
+      return res.status(500).json({
+        success: false,
+        error: 'Could not load applications.',
+      });
+    }
+  }
+);
+
+// =====================================================
 // MESSAGING: SHARED CONVERSATIONS AND MESSAGES
 // =====================================================
 
@@ -781,15 +1008,8 @@ function validUserId(value) {
 }
 
 // GET INBOX
-app.get('/api/messages/conversations', async (req, res) => {
-  const userId = validUserId(req.query.userId);
-
-  if (!userId) {
-    return res.status(400).json({
-      success: false,
-      error: "A valid userId is required."
-    });
-  }
+app.get('/api/messages/conversations', requireAuth, async (req, res) => {
+  const userId = req.user.id;
 
   try {
     const result = await pool.query(
@@ -843,11 +1063,11 @@ app.get('/api/messages/conversations', async (req, res) => {
 
 
 // START OR REUSE A CONVERSATION
-app.post('/api/messages/conversations', async (req, res) => {
-  const userId = validUserId(req.body.userId);
+app.post('/api/messages/conversations', requireAuth, async (req, res) => {
+  const userId = req.user.id;
   const otherUserId = validUserId(req.body.otherUserId);
 
-  if (!userId || !otherUserId || userId === otherUserId) {
+  if (!otherUserId || userId === otherUserId) {
     return res.status(400).json({
       success: false,
       error: "Two different valid user IDs are required."
@@ -894,11 +1114,11 @@ app.post('/api/messages/conversations', async (req, res) => {
 
 
 // GET MESSAGE HISTORY AND MARK RECEIVED MESSAGES AS READ
-app.get('/api/messages/conversations/:id', async (req, res) => {
+app.get('/api/messages/conversations/:id', requireAuth, async (req, res) => {
   const conversationId = validUserId(req.params.id);
-  const userId = validUserId(req.query.userId);
+  const userId = req.user.id;
 
-  if (!conversationId || !userId) {
+  if (!conversationId) {
     return res.status(400).json({
       success: false,
       error: "Valid conversation and user IDs are required."
@@ -953,14 +1173,14 @@ app.get('/api/messages/conversations/:id', async (req, res) => {
 
 
 // SEND MESSAGE
-app.post('/api/messages', async (req, res) => {
-  const senderId = validUserId(req.body.senderId);
+app.post('/api/messages', requireAuth, async (req, res) => {
+  const senderId = req.user.id;
   const conversationId = validUserId(req.body.conversationId);
   const body = typeof req.body.body === "string"
     ? req.body.body.trim()
     : "";
 
-  if (!senderId || !conversationId || !body) {
+  if (!conversationId || !body) {
     return res.status(400).json({
       success: false,
       error: "Sender, conversation, and message text are required."

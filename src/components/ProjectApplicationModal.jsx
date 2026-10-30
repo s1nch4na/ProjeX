@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { apiRequest } from "../utils/api";
 
 export default function ProjectApplicationModal({ projectId, userEmail, onClose, onSuccess }) {
   const [applicationType, setApplicationType] = useState("solo");
@@ -12,7 +13,7 @@ export default function ProjectApplicationModal({ projectId, userEmail, onClose,
     setLoading(true);
 
     try {
-      const response = await fetch("/api/projects/apply", {
+      const response = await apiRequest("/api/projects/apply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -24,7 +25,25 @@ export default function ProjectApplicationModal({ projectId, userEmail, onClose,
         })
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data;
+
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        throw new Error(
+          response.ok
+            ? "The server returned an invalid response."
+            : `Application failed with status ${response.status}.`
+        );
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          data.error || `Application failed with status ${response.status}.`
+        );
+      }
+
       if (data.success) {
         setIsSubmitted(true); // Switch view to success state
         onSuccess?.();
@@ -33,7 +52,7 @@ export default function ProjectApplicationModal({ projectId, userEmail, onClose,
       }
     } catch (err) {
       console.error("Application error:", err);
-      alert("Server error during application.");
+      alert(err.message || "Server error during application.");
     } finally {
       setLoading(false);
     }

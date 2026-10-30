@@ -1,6 +1,62 @@
 // src/utils/api.js
 
-const API_URL = "https://projex-ap2m.onrender.com";
+const API_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:5000";
+
+export function getAuthToken() {
+  return localStorage.getItem("projex_token");
+}
+
+export function saveAuthSession(user, token) {
+  localStorage.setItem("projex_user", JSON.stringify(user));
+
+  if (token) {
+    localStorage.setItem("projex_token", token);
+  }
+}
+
+export function clearAuthSession() {
+  localStorage.removeItem("projex_user");
+  localStorage.removeItem("projex_token");
+  window.dispatchEvent(new Event("projex-auth-change"));
+}
+
+export async function apiRequest(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  const token = getAuthToken();
+
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  const response = await fetch(`${API_URL}${path}`, {
+    ...options,
+    headers,
+  });
+
+  if (response.status === 401) {
+    clearAuthSession();
+  }
+
+  return response;
+}
+
+async function parseApiResponse(response) {
+  const text = await response.text();
+  let data;
+
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(
+      response.ok
+        ? "The server returned an invalid response."
+        : `Request failed with status ${response.status}.`
+    );
+  }
+
+  return { response, data };
+}
 
 // ==========================================
 // 1. LOGIN USER
@@ -8,7 +64,7 @@ const API_URL = "https://projex-ap2m.onrender.com";
 
 export async function loginUser(userData) {
   try {
-    const response = await fetch(`${API_URL}/api/auth/login`, {
+    const response = await apiRequest("/api/auth/login", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -16,17 +72,14 @@ export async function loginUser(userData) {
       body: JSON.stringify(userData),
     });
 
-    const data = await response.json();
+    const { data } = await parseApiResponse(response);
 
-    if (!response.ok || !data.success) {
+    if (!response.ok || !data.success || !data.token) {
       alert(data.error || "Login failed.");
       return null;
     }
 
-    localStorage.setItem(
-      "projex_user",
-      JSON.stringify(data.user)
-    );
+    saveAuthSession(data.user, data.token);
 
     window.dispatchEvent(new Event("projex-auth-change"));
 
@@ -49,7 +102,7 @@ export async function loginUser(userData) {
 
 export async function signupUser(userData) {
   try {
-    const response = await fetch(`${API_URL}/api/auth/signup`, {
+    const response = await apiRequest("/api/auth/signup", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -57,17 +110,14 @@ export async function signupUser(userData) {
       body: JSON.stringify(userData),
     });
 
-    const data = await response.json();
+    const { data } = await parseApiResponse(response);
 
-    if (!response.ok || !data.success) {
+    if (!response.ok || !data.success || !data.token) {
       alert(data.error || "Signup failed.");
       return null;
     }
 
-    localStorage.setItem(
-      "projex_user",
-      JSON.stringify(data.user)
-    );
+    saveAuthSession(data.user, data.token);
 
     window.dispatchEvent(new Event("projex-auth-change"));
 
@@ -90,8 +140,8 @@ export async function signupUser(userData) {
 
 export async function completeProfile(profileData) {
   try {
-    const response = await fetch(
-      `${API_URL}/api/profile/onboard`,
+    const response = await apiRequest(
+      "/api/profile/onboard",
       {
         method: "POST",
         headers: {
@@ -101,7 +151,7 @@ export async function completeProfile(profileData) {
       }
     );
 
-    const data = await response.json();
+    const { data } = await parseApiResponse(response);
 
     if (!response.ok || !data.success) {
       throw new Error(
@@ -110,10 +160,7 @@ export async function completeProfile(profileData) {
     }
 
     if (data.user) {
-      localStorage.setItem(
-        "projex_user",
-        JSON.stringify(data.user)
-      );
+      saveAuthSession(data.user, getAuthToken());
 
       window.dispatchEvent(
         new Event("projex-auth-change")
@@ -140,11 +187,9 @@ export async function completeProfile(profileData) {
 
 export async function getProfile(id) {
   try {
-    const response = await fetch(
-      `${API_URL}/api/profile/${id}`
-    );
+    const response = await apiRequest(`/api/profile/${id}`);
 
-    const data = await response.json();
+    const { data } = await parseApiResponse(response);
 
     if (!response.ok) {
       throw new Error(
@@ -166,8 +211,8 @@ export async function getProfile(id) {
 
 export async function updateProfile(id, profileData) {
   try {
-    const response = await fetch(
-      `${API_URL}/api/profile/${id}`,
+    const response = await apiRequest(
+      `/api/profile/${id}`,
       {
         method: "PUT",
         headers: {
@@ -177,18 +222,7 @@ export async function updateProfile(id, profileData) {
       }
     );
 
-    const text = await response.text();
-
-    let data;
-
-    try {
-      data = JSON.parse(text);
-    } catch {
-      console.error("❌ Backend returned non-JSON:", text);
-      throw new Error(
-        "Backend returned an invalid response. Check the deployed backend URL."
-      );
-    }
+    const { data } = await parseApiResponse(response);
 
     if (!response.ok || !data.success) {
       throw new Error(
@@ -197,10 +231,7 @@ export async function updateProfile(id, profileData) {
     }
 
     if (data.user) {
-      localStorage.setItem(
-        "projex_user",
-        JSON.stringify(data.user)
-      );
+      saveAuthSession(data.user, getAuthToken());
 
       window.dispatchEvent(
         new Event("projex-auth-change")
@@ -221,10 +252,10 @@ export async function updateProfile(id, profileData) {
 
 
 export async function getMessageConversations(userId) {
-  const response = await fetch(
-    `${API_URL}/api/messages/conversations?userId=${encodeURIComponent(userId)}`
+  const response = await apiRequest(
+    `/api/messages/conversations?userId=${encodeURIComponent(userId)}`
   );
-  const data = await response.json();
+  const { data } = await parseApiResponse(response);
 
   if (!response.ok || !data.success) {
     throw new Error(data.error || "Could not load conversations.");
@@ -234,12 +265,12 @@ export async function getMessageConversations(userId) {
 }
 
 export async function startMessageConversation(userId, otherUserId) {
-  const response = await fetch(`${API_URL}/api/messages/conversations`, {
+  const response = await apiRequest("/api/messages/conversations", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ userId, otherUserId }),
   });
-  const data = await response.json();
+  const { data } = await parseApiResponse(response);
 
   if (!response.ok || !data.success) {
     throw new Error(data.error || "Could not start conversation.");
@@ -249,10 +280,10 @@ export async function startMessageConversation(userId, otherUserId) {
 }
 
 export async function getConversationMessages(conversationId, userId) {
-  const response = await fetch(
-    `${API_URL}/api/messages/conversations/${encodeURIComponent(conversationId)}?userId=${encodeURIComponent(userId)}`
+  const response = await apiRequest(
+    `/api/messages/conversations/${encodeURIComponent(conversationId)}?userId=${encodeURIComponent(userId)}`
   );
-  const data = await response.json();
+  const { data } = await parseApiResponse(response);
 
   if (!response.ok || !data.success) {
     throw new Error(data.error || "Could not load messages.");
@@ -262,12 +293,12 @@ export async function getConversationMessages(conversationId, userId) {
 }
 
 export async function sendChatMessage(conversationId, senderId, body) {
-  const response = await fetch(`${API_URL}/api/messages`, {
+  const response = await apiRequest("/api/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ conversationId, senderId, body }),
   });
-  const data = await response.json();
+  const { data } = await parseApiResponse(response);
 
   if (!response.ok || !data.success) {
     throw new Error(data.error || "Could not send message.");
