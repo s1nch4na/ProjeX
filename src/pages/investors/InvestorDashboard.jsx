@@ -172,7 +172,7 @@ export default function InvestorDashboard() {
                 <span className="text-[10px] font-mono uppercase tracking-widest text-neutral-500 border border-neutral-300 px-2 py-0.5 inline-block">
                   Action 02
                 </span>
-                <Link to="/investor/projects" className="text-xs font-mono uppercase tracking-wider underline">
+                <Link to="/project-owner/projects" className="text-xs font-mono uppercase tracking-wider underline">
                   View All →
                 </Link>
               </div>
