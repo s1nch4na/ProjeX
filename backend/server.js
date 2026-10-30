@@ -2,10 +2,88 @@ import express from 'express';
 import cors from 'cors';
 import pool from './db.js';
 import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import { v2 as cloudinary } from 'cloudinary';
 
 const app = express();
+const JWT_SECRET = process.env.JWT_SECRET;
+
+function requireJwtSecret(res) {
+  if (JWT_SECRET) {
+    return true;
+  }
+
+  res.status(503).json({
+    success: false,
+    error: 'Authentication is not configured.',
+  });
+  return false;
+}
+
+function createAuthToken(user) {
+  return jwt.sign(
+    { userId: user.id },
+    JWT_SECRET,
+    { expiresIn: '1d' }
+  );
+}
+
+async function requireAuth(req, res, next) {
+  if (!JWT_SECRET) {
+    return res.status(503).json({
+      success: false,
+      error: 'Authentication is not configured.',
+    });
+  }
+
+  const authorization = req.get('authorization') || '';
+  const [scheme, token] = authorization.split(' ');
+  let authData;
+
+  try {
+    authData =
+      scheme === 'Bearer' && token
+        ? jwt.verify(token, JWT_SECRET)
+        : null;
+  } catch {
+    authData = null;
+  }
+
+  if (
+    !authData ||
+    typeof authData !== 'object' ||
+    !Number.isSafeInteger(authData.userId)
+  ) {
+    return res.status(401).json({
+      success: false,
+      error: 'Authentication is required.',
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      'SELECT id, email, role FROM users WHERE id = $1',
+      [authData.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication is invalid.',
+      });
+    }
+
+    req.user = result.rows[0];
+    return next();
+  } catch (err) {
+    console.error('Authentication lookup error:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Could not verify authentication.',
+    });
+  }
+}
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -61,6 +139,10 @@ app.get('/', (req, res) => {
 // =====================================================
 
 app.post('/api/auth/signup', async (req, res) => {
+  if (!requireJwtSecret(res)) {
+    return;
+  }
+
   const { name, email, password, role } = req.body;
 
   try {
@@ -97,9 +179,12 @@ app.post('/api/auth/signup', async (req, res) => {
       ]
     );
 
+    const token = createAuthToken(insertResult.rows[0]);
+
     res.json({
       success: true,
-      user: insertResult.rows[0]
+      user: insertResult.rows[0],
+      token,
     });
 
   } catch (err) {
@@ -118,6 +203,10 @@ app.post('/api/auth/signup', async (req, res) => {
 // =====================================================
 
 app.post('/api/auth/login', async (req, res) => {
+  if (!requireJwtSecret(res)) {
+    return;
+  }
+
   const { email, password } = req.body;
 
   try {
@@ -147,9 +236,12 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
+    const token = createAuthToken(user);
+
     res.json({
       success: true,
-      user
+      user,
+      token,
     });
 
   } catch (err) {
