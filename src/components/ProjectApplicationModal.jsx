@@ -1,9 +1,7 @@
 import React, { useState } from "react";
 import { apiRequest } from "../utils/api";
 
-export default function ProjectApplicationModal({ projectId, userEmail, onClose, onSuccess }) {
-  const [applicationType, setApplicationType] = useState("solo");
-  const [teamMembers, setTeamMembers] = useState("");
+export default function ProjectApplicationModal({ projectId, onClose, onSuccess }) {
   const [coverNote, setCoverNote] = useState("");
   const [loading, setLoading] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false); // Track success state
@@ -18,9 +16,7 @@ export default function ProjectApplicationModal({ projectId, userEmail, onClose,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           project_id: projectId || null,
-          user_email: userEmail,
-          application_type: applicationType,
-          team_members: applicationType === "team" ? teamMembers : null,
+          application_type: "solo",
           cover_note: coverNote
         })
       });
@@ -92,44 +88,6 @@ export default function ProjectApplicationModal({ projectId, userEmail, onClose,
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs uppercase font-bold mb-1">Applying As</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 text-xs uppercase cursor-pointer">
-                    <input 
-                      type="radio" 
-                      name="appType" 
-                      checked={applicationType === "solo"} 
-                      onChange={() => setApplicationType("solo")} 
-                    />
-                    Solo Developer
-                  </label>
-                  <label className="flex items-center gap-2 text-xs uppercase cursor-pointer">
-                    <input 
-                      type="radio" 
-                      name="appType" 
-                      checked={applicationType === "team"} 
-                      onChange={() => setApplicationType("team")} 
-                    />
-                    Team
-                  </label>
-                </div>
-              </div>
-
-              {applicationType === "team" && (
-                <div>
-                  <label className="block text-xs uppercase font-bold mb-1">Teammate Names / Emails</label>
-                  <input 
-                    type="text"
-                    placeholder="e.g. Alex Smith, Sarah Lee"
-                    value={teamMembers}
-                    onChange={(e) => setTeamMembers(e.target.value)}
-                    className="w-full border-2 border-black p-3 text-sm bg-[#f4f4f0] focus:outline-none"
-                    required
-                  />
-                </div>
-              )}
-
               <div>
                 <label className="block text-xs uppercase font-bold mb-1">Pitch / Cover Note</label>
                 <textarea 

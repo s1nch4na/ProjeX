@@ -1,12 +1,40 @@
 import React, { useRef } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import ProjectCard from "../components/ProjectCard";
 import ProfileCard from "../components/ProfileCard";
 import { projects, profiles } from "../utils/mockData";
 
 export default function Landing() {
+  const navigate = useNavigate();
   const projectRef = useRef(null);
   const profileRef = useRef(null);
+
+  const handlePostProject = () => {
+    let user = null;
+
+    try {
+      user = JSON.parse(localStorage.getItem("projex_user") || "null");
+    } catch (error) {
+      console.error("Could not read ProjeX user:", error);
+    }
+
+    if (user?.role === "investor") {
+      navigate("/project-owner/post");
+      return;
+    }
+
+    if (user?.role === "student") {
+      alert("Posting a project requires a Project Owner account.");
+      return;
+    }
+
+    navigate("/login", {
+      state: {
+        authRole: "investor",
+        returnTo: "/project-owner/post",
+      },
+    });
+  };
 
   const scroll = (ref, dir) => {
     if (!ref.current) return;
@@ -41,12 +69,13 @@ export default function Landing() {
               >
                 Explore Projects →
               </Link>
-              <Link
-                to="/login"
+              <button
+                type="button"
+                onClick={handlePostProject}
                 className="px-6 py-3 border border-black text-center font-medium hover:bg-black hover:text-white transition-colors rounded-none"
               >
                 Post a Project
-              </Link>
+              </button>
             </div>
           </div>
         </div>

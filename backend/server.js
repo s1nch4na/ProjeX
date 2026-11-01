@@ -132,7 +132,7 @@ app.use(
       "https://proje-x-five.vercel.app",
       "http://localhost:5173"
     ],
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
@@ -538,6 +538,7 @@ function handleProjectImageUpload(req, res, next) {
 app.post(
   '/api/projects',
   requireAuth,
+  requireRole('investor'),
   handleProjectImageUpload,
   async (req, res) => {
     console.log("🔥 POST /api/projects HIT");
@@ -745,7 +746,6 @@ app.post('/api/projects/apply', requireAuth, requireRole('student'), async (req,
   const {
     project_id,
     application_type,
-    team_members,
     cover_note
   } = req.body;
 
@@ -755,9 +755,6 @@ app.post('/api/projects/apply', requireAuth, requireRole('student'), async (req,
   const applicationType = typeof application_type === 'string'
     ? application_type.trim()
     : '';
-  const teamMembers = team_members == null
-    ? null
-    : String(team_members).trim();
   const coverNote = typeof cover_note === 'string'
     ? cover_note.trim()
     : '';
@@ -769,17 +766,10 @@ app.post('/api/projects/apply', requireAuth, requireRole('student'), async (req,
     });
   }
 
-  if (applicationType !== 'solo' && applicationType !== 'team') {
+  if (applicationType !== 'solo') {
     return res.status(400).json({
       success: false,
-      error: 'Application type must be solo or team.',
-    });
-  }
-
-  if (applicationType === 'team' && !teamMembers) {
-    return res.status(400).json({
-      success: false,
-      error: 'Team member details are required for team applications.',
+      error: 'Only individual solo applications are supported.',
     });
   }
 
@@ -806,13 +796,11 @@ app.post('/api/projects/apply', requireAuth, requireRole('student'), async (req,
          cover_note,
          status
        )
-       VALUES ($1, $2, $3, $4, $5, 'Applied')
+       VALUES ($1, $2, 'solo', NULL, $3, 'Applied')
        RETURNING *`,
       [
         projectId,
         req.user.email,
-        applicationType,
-        teamMembers,
         coverNote
       ]
     );
@@ -910,6 +898,30 @@ app.patch(
     }
 
     try {
+      const currentApplication = await pool.query(
+        `SELECT pa.status
+         FROM project_applications pa
+         JOIN projects p
+           ON p.id::text = pa.project_id
+         WHERE pa.id = $1
+           AND p.user_id = $2`,
+        [applicationId, req.user.id]
+      );
+
+      if (currentApplication.rows.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: 'Application not found.',
+        });
+      }
+
+      if (currentApplication.rows[0].status !== 'Applied') {
+        return res.status(400).json({
+          success: false,
+          error: 'Only Applied applications can be updated.',
+        });
+      }
+
       const result = await pool.query(
         `UPDATE project_applications pa
          SET status = $1
@@ -917,6 +929,7 @@ app.patch(
          WHERE pa.id = $2
            AND p.id::text = pa.project_id
            AND p.user_id = $3
+           AND pa.status = 'Applied'
          RETURNING
            pa.id AS application_id,
            pa.project_id,

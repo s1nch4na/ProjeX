@@ -10,12 +10,16 @@ export default function EditProfile() {
 
   const [form, setForm] = useState({
     name: "",
-    role: "",
+    position: "",
     bio: "",
     location: "",
     github: "",
     linkedin: "",
-    skills: []
+    skills: [],
+    phone: "",
+    organization: "",
+    website: "",
+    interests: []
   });
 
   const [skillInput, setSkillInput] = useState("");
@@ -49,14 +53,30 @@ export default function EditProfile() {
         parsedSkills = [];
       }
 
+      let parsedInterests = [];
+
+      try {
+        if (Array.isArray(parsedUser.interests)) {
+          parsedInterests = parsedUser.interests;
+        } else if (typeof parsedUser.interests === "string") {
+          parsedInterests = JSON.parse(parsedUser.interests);
+        }
+      } catch {
+        parsedInterests = [];
+      }
+
       setForm({
         name: parsedUser.name || "",
-        role: parsedUser.role || "",
+        position: parsedUser.position || "",
         bio: parsedUser.bio || "",
         location: parsedUser.location || "",
         github: parsedUser.github || "",
         linkedin: parsedUser.linkedin || "",
-        skills: parsedSkills
+        skills: parsedSkills,
+        phone: parsedUser.phone || "",
+        organization: parsedUser.organization || "",
+        website: parsedUser.website || "",
+        interests: parsedInterests
       });
 
     } catch (error) {
@@ -252,19 +272,19 @@ export default function EditProfile() {
 
                 </div>
 
-                {/* ROLE */}
+                {/* PROFESSIONAL POSITION */}
                 <div>
 
                   <label className="block text-xs font-mono uppercase tracking-widest mb-2">
-                    Role
+                    Professional position
                   </label>
 
                   <input
                     type="text"
-                    name="role"
-                    value={form.role}
+                    name="position"
+                    value={form.position}
                     onChange={handleChange}
-                    placeholder="e.g. Full Stack Developer"
+                    placeholder="e.g. Full Stack Developer or Founder"
                     className="w-full border border-black bg-white px-4 py-3 focus:outline-none"
                   />
 
@@ -287,6 +307,70 @@ export default function EditProfile() {
                   />
 
                 </div>
+
+                {user.role === "investor" && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-mono uppercase tracking-widest mb-2">
+                        Organization
+                      </label>
+                      <input
+                        type="text"
+                        name="organization"
+                        value={form.organization}
+                        onChange={handleChange}
+                        className="w-full border border-black bg-white px-4 py-3 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-mono uppercase tracking-widest mb-2">
+                        Phone
+                      </label>
+                      <input
+                        type="text"
+                        name="phone"
+                        value={form.phone}
+                        onChange={handleChange}
+                        className="w-full border border-black bg-white px-4 py-3 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-mono uppercase tracking-widest mb-2">
+                        Website
+                      </label>
+                      <input
+                        type="text"
+                        name="website"
+                        value={form.website}
+                        onChange={handleChange}
+                        className="w-full border border-black bg-white px-4 py-3 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-mono uppercase tracking-widest mb-2">
+                        Interests
+                      </label>
+                      <input
+                        type="text"
+                        value={form.interests.join(", ")}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            interests: e.target.value
+                              .split(",")
+                              .map((interest) => interest.trim())
+                              .filter(Boolean),
+                          }))
+                        }
+                        placeholder="e.g. SaaS, education, fintech"
+                        className="w-full border border-black bg-white px-4 py-3 focus:outline-none"
+                      />
+                    </div>
+                  </>
+                )}
 
               </div>
 

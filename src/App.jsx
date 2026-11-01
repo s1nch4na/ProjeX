@@ -2,7 +2,8 @@ import {
   BrowserRouter as Router,
   Routes,
   Route,
-  useLocation
+  useLocation,
+  Navigate
 } from "react-router-dom";
 
 import Navbar from "./components/Navbar";
@@ -25,6 +26,37 @@ import TalentProfiles from "./pages/investors/TalentProfiles";
 import PostProject from "./pages/investors/PostProject";
 import MyProjects from "./pages/investors/MyProjects";
 import InvestorChat from "./pages/investors/InvestorChat";
+
+function RoleRoute({ role, children }) {
+  const location = useLocation();
+  let user = null;
+  const token = localStorage.getItem("projex_token");
+
+  try {
+    user = JSON.parse(localStorage.getItem("projex_user") || "null");
+  } catch (error) {
+    console.error("Could not read ProJeX session:", error);
+  }
+
+  if (!token || user?.role !== role) {
+    if (role === "investor") {
+      return (
+        <Navigate
+          to="/login"
+          replace
+          state={{
+            authRole: "investor",
+            returnTo: location.pathname,
+          }}
+        />
+      );
+    }
+
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
+}
 
 function AppRoutes() {
   const location = useLocation();
@@ -81,27 +113,47 @@ function AppRoutes() {
         {/* PROJECT OWNER */}
         <Route
           path="/project-owner"
-          element={<InvestorDashboard />}
+          element={
+            <RoleRoute role="investor">
+              <InvestorDashboard />
+            </RoleRoute>
+          }
         />
 
         <Route
           path="/project-owner/talent"
-          element={<TalentProfiles />}
+          element={
+            <RoleRoute role="investor">
+              <TalentProfiles />
+            </RoleRoute>
+          }
         />
 
         <Route
           path="/project-owner/post"
-          element={<PostProject />}
+          element={
+            <RoleRoute role="investor">
+              <PostProject />
+            </RoleRoute>
+          }
         />
 
         <Route
           path="/project-owner/projects"
-          element={<MyProjects />}
+          element={
+            <RoleRoute role="investor">
+              <MyProjects />
+            </RoleRoute>
+          }
         />
 
         <Route
           path="/project-owner/chat"
-          element={<InvestorChat />}
+          element={
+            <RoleRoute role="investor">
+              <InvestorChat />
+            </RoleRoute>
+          }
         />
 
         {/* PROJECTS */}

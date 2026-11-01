@@ -8,7 +8,15 @@ export default function ProfileOnboarding() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const user = location.state?.user;
+  const user = location.state?.user || (() => {
+    try {
+      return JSON.parse(localStorage.getItem("projex_user") || "null");
+    } catch (error) {
+      console.error("Could not read ProJeX user:", error);
+      return null;
+    }
+  })();
+  const returnTo = location.state?.returnTo;
 
   const isProjectOwner = user?.role === "investor";
 
@@ -224,9 +232,7 @@ export default function ProfileOnboarding() {
       alert("Profile completed successfully!");
 
       navigate(
-        isProjectOwner
-          ? "/project-owner"
-          : "/student"
+        returnTo || (isProjectOwner ? "/project-owner" : "/student")
       );
     }
   };

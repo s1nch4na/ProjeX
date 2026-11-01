@@ -10,15 +10,22 @@ export default function ProjectDetails() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [isApplyModalOpen, setIsApplyModalOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [ownerApplications, setOwnerApplications] = useState([]);
+  const [applicationsLoading, setApplicationsLoading] = useState(false);
+  const [applicationsError, setApplicationsError] = useState("");
+  const [applicationFeedback, setApplicationFeedback] = useState("");
+  const [updatingApplicationId, setUpdatingApplicationId] = useState(null);
 
-  let loggedInUser = { email: "student@jain.in" };
-  try {
-    loggedInUser =
-      JSON.parse(localStorage.getItem("projex_user")) ||
-      loggedInUser;
-  } catch {
-    // Use the fallback account when stored session data is invalid.
-  }
+  useEffect(() => {
+    try {
+      setCurrentUser(
+        JSON.parse(localStorage.getItem("projex_user") || "null")
+      );
+    } catch {
+      setCurrentUser(null);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,6 +68,142 @@ export default function ProjectDetails() {
       cancelled = true;
     };
   }, [id]);
+
+  useEffect(() => {
+    if (
+      !project ||
+      currentUser?.role !== "investor" ||
+      String(project.user_id) !== String(currentUser.id)
+    ) {
+      setOwnerApplications([]);
+      setApplicationsError("");
+      setApplicationsLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    async function loadOwnerApplications() {
+      try {
+        setApplicationsLoading(true);
+        setApplicationsError("");
+
+        const response = await apiRequest("/api/owner/applications");
+        const text = await response.text();
+        let data;
+
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch {
+          throw new Error(
+            response.ok
+              ? "The server returned an invalid response."
+              : "Could not load applications."
+          );
+        }
+
+        if (!response.ok || !data?.success) {
+          throw new Error(data?.error || "Could not load applications.");
+        }
+
+        const projectApplications = (data.applications || []).filter(
+          (application) =>
+            String(application.project_id) === String(project.id)
+        );
+
+        if (!cancelled) {
+          setOwnerApplications(projectApplications);
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setApplicationsError(
+            loadError.message || "Could not load applications."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setApplicationsLoading(false);
+        }
+      }
+    }
+
+    loadOwnerApplications();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project, currentUser]);
+
+  const updateApplicationStatus = async (applicationId, status) => {
+    setApplicationFeedback("");
+    setUpdatingApplicationId(applicationId);
+
+    try {
+      const response = await apiRequest(
+        `/api/owner/applications/${encodeURIComponent(applicationId)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status }),
+        }
+      );
+      const text = await response.text();
+      let data;
+
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        throw new Error(
+          response.ok
+            ? "The server returned an invalid response."
+            : "Could not update application status."
+        );
+      }
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || "Could not update application status.");
+      }
+
+      const applicationsResponse = await apiRequest(
+        "/api/owner/applications"
+      );
+      const applicationsText = await applicationsResponse.text();
+      let applicationsData;
+
+      try {
+        applicationsData = applicationsText
+          ? JSON.parse(applicationsText)
+          : null;
+      } catch {
+        throw new Error(
+          applicationsResponse.ok
+            ? "The server returned an invalid response."
+            : "Application status updated, but applications could not be refreshed."
+        );
+      }
+
+      if (!applicationsResponse.ok || !applicationsData?.success) {
+        throw new Error(
+          applicationsData?.error ||
+            "Application status updated, but applications could not be refreshed."
+        );
+      }
+
+      setOwnerApplications(
+        (applicationsData.applications || []).filter(
+          (application) =>
+            String(application.project_id) === String(project.id)
+        )
+      );
+      setApplicationFeedback(`Application ${status.toLowerCase()} successfully.`);
+    } catch (updateError) {
+      setApplicationFeedback(
+        updateError.message || "Could not update application status."
+      );
+    } finally {
+      setUpdatingApplicationId(null);
+    }
+  };
 
   const projectImage =
     project?.image_url ||
@@ -165,14 +308,165 @@ export default function ProjectDetails() {
                   </div>
                 </div>
 
-                <button
-                  onClick={() => setIsApplyModalOpen(true)}
-                  className="w-full bg-black text-white py-3 text-xs uppercase tracking-widest font-bold border-2 border-black hover:bg-neutral-800 transition cursor-pointer text-center mt-6"
-                >
-                  Apply For Project →
-                </button>
+                {currentUser?.role === "student" && (
+                  <button
+                    onClick={() => setIsApplyModalOpen(true)}
+                    className="w-full bg-black text-white py-3 text-xs uppercase tracking-widest font-bold border-2 border-black hover:bg-neutral-800 transition cursor-pointer text-center mt-6"
+                  >
+                    Apply For Project →
+                  </button>
+                )}
               </div>
             </div>
+
+            {currentUser?.role === "investor" &&
+              String(project.user_id) === String(currentUser.id) && (
+                <section
+                  className="mt-8 border-2 border-black bg-[#f4f4f0] p-6"
+                  aria-labelledby="owner-applications-heading"
+                >
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-2 mb-5">
+                    <div>
+                      <span className="text-xs uppercase text-neutral-500">
+                        Owner controls
+                      </span>
+                      <h2
+                        id="owner-applications-heading"
+                        className="text-xl font-bold uppercase tracking-tight mt-1"
+                      >
+                        Applications Received
+                      </h2>
+                    </div>
+                    {!applicationsLoading && !applicationsError && (
+                      <span className="text-xs uppercase text-neutral-500">
+                        {ownerApplications.length} received
+                      </span>
+                    )}
+                  </div>
+
+                  {applicationFeedback && (
+                    <p
+                      role="status"
+                      className="mb-4 border border-black bg-white p-3 text-sm"
+                    >
+                      {applicationFeedback}
+                    </p>
+                  )}
+
+                  {applicationsLoading && (
+                    <p className="border border-black bg-white p-4 text-sm">
+                      Loading applications...
+                    </p>
+                  )}
+
+                  {!applicationsLoading && applicationsError && (
+                    <p
+                      role="alert"
+                      className="border border-red-600 bg-white p-4 text-sm text-red-700"
+                    >
+                      {applicationsError}
+                    </p>
+                  )}
+
+                  {!applicationsLoading &&
+                    !applicationsError &&
+                    ownerApplications.length === 0 && (
+                      <p className="border border-black bg-white p-4 text-sm">
+                        No applications received yet.
+                      </p>
+                    )}
+
+                  {!applicationsLoading &&
+                    !applicationsError &&
+                    ownerApplications.length > 0 && (
+                      <div className="space-y-4">
+                        {ownerApplications.map((application) => {
+                          const isUpdating =
+                            updatingApplicationId ===
+                            application.application_id;
+
+                          return (
+                            <article
+                              key={application.application_id}
+                              className="border border-neutral-300 bg-white p-4"
+                            >
+                              <div className="flex flex-col md:flex-row md:justify-between gap-3">
+                                <div>
+                                  <p className="font-bold">
+                                    Applicant name unavailable
+                                  </p>
+                                  <p className="text-sm">
+                                    {application.user_email}
+                                  </p>
+                                  <p className="text-xs text-neutral-500 mt-1">
+                                    Submitted{" "}
+                                    {application.created_at
+                                      ? new Date(
+                                          application.created_at
+                                        ).toLocaleDateString()
+                                      : "Date unavailable"}
+                                  </p>
+                                </div>
+                                <span className="self-start px-2 py-1 text-[10px] uppercase bg-blue-100 text-blue-800">
+                                  {application.status || "Applied"}
+                                </span>
+                              </div>
+
+                              <dl className="mt-4 space-y-3 text-sm">
+                                <div>
+                                  <dt className="text-[10px] uppercase text-neutral-500">
+                                    Application type
+                                  </dt>
+                                  <dd>{application.application_type}</dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[10px] uppercase text-neutral-500">
+                                    Cover note
+                                  </dt>
+                                  <dd className="mt-1 whitespace-pre-wrap">
+                                    {application.cover_note ||
+                                      "No cover note provided."}
+                                  </dd>
+                                </div>
+                              </dl>
+
+                              {application.status === "Applied" && (
+                                <div className="mt-4 flex flex-wrap gap-3">
+                                  <button
+                                    type="button"
+                                    disabled={isUpdating}
+                                    onClick={() =>
+                                      updateApplicationStatus(
+                                        application.application_id,
+                                        "Accepted"
+                                      )
+                                    }
+                                    className="px-4 py-2 bg-black text-white text-xs uppercase tracking-wider disabled:opacity-50"
+                                  >
+                                    {isUpdating ? "Updating..." : "Accept"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={isUpdating}
+                                    onClick={() =>
+                                      updateApplicationStatus(
+                                        application.application_id,
+                                        "Rejected"
+                                      )
+                                    }
+                                    className="px-4 py-2 border border-black text-xs uppercase tracking-wider disabled:opacity-50"
+                                  >
+                                    {isUpdating ? "Updating..." : "Reject"}
+                                  </button>
+                                </div>
+                              )}
+                            </article>
+                          );
+                        })}
+                      </div>
+                    )}
+                </section>
+              )}
           </>
         )}
       </div>
@@ -180,7 +474,6 @@ export default function ProjectDetails() {
       {isApplyModalOpen && project && (
         <ProjectApplicationModal
           projectId={project.id}
-          userEmail={loggedInUser.email}
           onClose={() => setIsApplyModalOpen(false)}
           onSuccess={() => {
             setIsApplyModalOpen(false);

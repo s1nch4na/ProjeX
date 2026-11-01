@@ -92,6 +92,38 @@ export default function Navbar() {
         ) : (
           /* LOGGED IN */
           <>
+            <div className="hidden lg:flex items-center gap-4">
+              <Link
+                to={user.role === "investor" ? "/project-owner" : "/student"}
+                className="text-[10px] font-mono uppercase tracking-wider hover:underline"
+              >
+                Dashboard
+              </Link>
+              {user.role === "investor" ? (
+                <>
+                  <Link
+                    to="/project-owner/projects"
+                    className="text-[10px] font-mono uppercase tracking-wider hover:underline"
+                  >
+                    My Projects
+                  </Link>
+                  <Link
+                    to="/project-owner/post"
+                    className="text-[10px] font-mono uppercase tracking-wider hover:underline"
+                  >
+                    Post a Project
+                  </Link>
+                </>
+              ) : (
+                <Link
+                  to="/student"
+                  className="text-[10px] font-mono uppercase tracking-wider hover:underline"
+                >
+                  Browse Projects
+                </Link>
+              )}
+            </div>
+
             {/* GREETING */}
             <span className="hidden sm:block text-xs font-mono uppercase tracking-wider">
               Hi, {user.name?.split(" ")[0] || "there"} 👋

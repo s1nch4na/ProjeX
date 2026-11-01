@@ -1,12 +1,15 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { loginUser, signupUser } from "../utils/api";
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [isSignUp, setIsSignUp] = useState(false);
-  const [role, setRole] = useState("student");
+  const [role, setRole] = useState(
+    location.state?.authRole === "investor" ? "investor" : "student"
+  );
 
   const [formData, setFormData] = useState({
     name: "",
@@ -128,7 +131,10 @@ export default function LoginPage() {
 
       if (!profileComplete) {
         navigate("/profile-onboarding", {
-          state: { user },
+          state: {
+            user,
+            returnTo: location.state?.returnTo,
+          },
         });
 
         return;
@@ -138,9 +144,9 @@ export default function LoginPage() {
       // PROFILE COMPLETE
       // ================================
       if (user.role === "investor") {
-       navigate("/project-owner");
+        navigate(location.state?.returnTo || "/project-owner");
       } else {
-      navigate("/student");
+        navigate("/student");
       }
 
     } catch (error) {

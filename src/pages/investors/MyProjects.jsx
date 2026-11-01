@@ -43,7 +43,7 @@ function formatDate(value) {
 function statusClasses(status) {
   if (status === "Accepted") return "bg-green-100 text-green-800";
   if (status === "Rejected") return "bg-red-100 text-red-800";
-  return "bg-yellow-100 text-yellow-800";
+  return "bg-blue-100 text-blue-800";
 }
 
 export default function MyProjects() {
@@ -53,7 +53,7 @@ export default function MyProjects() {
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
   const [updatingId, setUpdatingId] = useState(null);
-  const [expandedId, setExpandedId] = useState(null);
+  const [expandedProjectId, setExpandedProjectId] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,14 +67,15 @@ export default function MyProjects() {
         const ownerId = storedUser?.id ?? storedUser?.user?.id;
 
         if (!ownerId) {
-          throw new Error("Your login session was not found. Please log in again.");
+          throw new Error(
+            "Your login session was not found. Please log in again."
+          );
         }
 
         const [projectsResponse, applicationsResponse] = await Promise.all([
           apiRequest("/api/projects"),
           apiRequest("/api/owner/applications"),
         ]);
-
         const projectsData = await readResponse(
           projectsResponse,
           "Could not load projects."
@@ -85,11 +86,17 @@ export default function MyProjects() {
         );
 
         if (!cancelled) {
-          setProjects(
-            (projectsData.projects || []).filter(
+          const uniqueProjects = new Map();
+
+          (projectsData.projects || [])
+            .filter(
               (project) => String(project.user_id) === String(ownerId)
             )
-          );
+            .forEach((project) => {
+              uniqueProjects.set(String(project.id), project);
+            });
+
+          setProjects([...uniqueProjects.values()]);
           setApplications(applicationsData.applications || []);
         }
       } catch (loadError) {
@@ -108,18 +115,18 @@ export default function MyProjects() {
     };
   }, []);
 
-  const projectIds = useMemo(
-    () => new Set(projects.map((project) => String(project.id))),
-    [projects]
-  );
+  const applicationsByProject = useMemo(() => {
+    const grouped = new Map();
 
-  const visibleApplications = useMemo(
-    () =>
-      applications.filter((application) =>
-        projectIds.has(String(application.project_id))
-      ),
-    [applications, projectIds]
-  );
+    applications.forEach((application) => {
+      const projectId = String(application.project_id);
+      const projectApplications = grouped.get(projectId) || [];
+      projectApplications.push(application);
+      grouped.set(projectId, projectApplications);
+    });
+
+    return grouped;
+  }, [applications]);
 
   const updateApplicationStatus = async (applicationId, status) => {
     setFeedback("");
@@ -146,9 +153,20 @@ export default function MyProjects() {
             : application
         )
       );
+
+      const applicationsResponse = await apiRequest(
+        "/api/owner/applications"
+      );
+      const applicationsData = await readResponse(
+        applicationsResponse,
+        "Application status was updated, but applications could not be refreshed."
+      );
+      setApplications(applicationsData.applications || []);
       setFeedback(`Application ${status.toLowerCase()} successfully.`);
     } catch (updateError) {
-      setFeedback(updateError.message || "Could not update the application status.");
+      setFeedback(
+        updateError.message || "Could not update the application status."
+      );
     } finally {
       setUpdatingId(null);
     }
@@ -173,176 +191,187 @@ export default function MyProjects() {
 
       {loading && (
         <p className="border border-black bg-white p-6 text-sm font-mono uppercase">
-          Loading your projects...
+          Loading projects and applications...
         </p>
       )}
 
       {!loading && error && (
-        <p role="alert" className="border border-red-600 bg-white p-6 text-sm text-red-700">
+        <p
+          role="alert"
+          className="border border-red-600 bg-white p-6 text-sm text-red-700"
+        >
           {error}
         </p>
       )}
 
       {!loading && !error && (
-        <>
-          <section aria-labelledby="projects-heading" className="mb-12">
-            <div className="flex items-end justify-between mb-5">
-              <h2 id="projects-heading" className="text-xl font-bold uppercase tracking-tight">
-                Posted Projects
-              </h2>
-              <span className="text-xs font-mono uppercase text-neutral-500">
-                {projects.length} total
-              </span>
+        <section aria-labelledby="projects-heading">
+          <div className="flex items-end justify-between mb-5">
+            <h2
+              id="projects-heading"
+              className="text-xl font-bold uppercase tracking-tight"
+            >
+              Posted Projects
+            </h2>
+            <span className="text-xs font-mono uppercase text-neutral-500">
+              {projects.length} total
+            </span>
+          </div>
+
+          {projects.length === 0 ? (
+            <div className="border border-black bg-white p-6 text-sm">
+              You have not posted any projects yet.
             </div>
+          ) : (
+            <div className="space-y-6">
+              {projects.map((project) => {
+                const projectId = String(project.id);
+                const projectApplications =
+                  applicationsByProject.get(projectId) || [];
+                const isExpanded = expandedProjectId === projectId;
+                const toggleProjectApplications = (event) => {
+                  if (event.target.closest("a, button")) return;
+                  setExpandedProjectId(isExpanded ? null : projectId);
+                };
 
-            {projects.length === 0 ? (
-              <div className="border border-black bg-white p-6 text-sm">
-                You have not posted any projects yet.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {projects.map((project) => (
-                  <ProjectCard
-                    key={project.id}
-                    id={project.id}
-                    title={project.title}
-                    meta={project.meta || project.project_type || "General"}
-                    price={project.price}
-                    image={project.image_url}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
+                return (
+                  <article
+                    key={projectId}
+                    className="border border-black bg-white"
+                    onClick={toggleProjectApplications}
+                  >
+                    <div className="p-4">
+                      <ProjectCard
+                        id={project.id}
+                        title={project.title}
+                        meta={project.meta || project.project_type || "General"}
+                        price={project.price}
+                        image={project.image_url}
+                      />
+                    </div>
 
-          <section aria-labelledby="applications-heading">
-            <div className="flex items-end justify-between mb-5">
-              <h2 id="applications-heading" className="text-xl font-bold uppercase tracking-tight">
-                Applications
-              </h2>
-              <span className="text-xs font-mono uppercase text-neutral-500">
-                {visibleApplications.length} received
-              </span>
-            </div>
-
-            {visibleApplications.length === 0 ? (
-              <div className="border border-black bg-white p-6 text-sm">
-                No applications have been submitted to your projects.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {visibleApplications.map((application) => {
-                  const isExpanded = expandedId === application.application_id;
-                  const canRespond = application.status === "Applied";
-                  const isUpdating = updatingId === application.application_id;
-
-                  return (
-                    <article
-                      key={application.application_id}
-                      className="border border-black bg-white"
-                    >
+                    <div className="border-t border-black">
                       <button
                         type="button"
-                        onClick={() =>
-                          setExpandedId(isExpanded ? null : application.application_id)
-                        }
-                        className="w-full text-left p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3"
                         aria-expanded={isExpanded}
+                        onClick={() =>
+                          setExpandedProjectId(isExpanded ? null : projectId)
+                        }
+                        className="w-full px-4 py-3 flex justify-between items-center text-left hover:bg-neutral-100"
                       >
-                        <div>
-                          <h3 className="font-bold uppercase tracking-tight">
-                            {application.project_title || "Untitled project"}
-                          </h3>
-                          <p className="text-sm mt-1">{application.user_email}</p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className={`px-2 py-1 text-[10px] font-mono uppercase ${statusClasses(application.status)}`}>
-                            {application.status || "Applied"}
-                          </span>
-                          <span className="text-xs font-mono uppercase">
-                            {isExpanded ? "Hide details" : "View details"}
-                          </span>
-                        </div>
+                        <span className="text-xs font-mono uppercase tracking-wider">
+                          Applications ({projectApplications.length})
+                        </span>
+                        <span className="text-xs font-mono uppercase">
+                          {isExpanded ? "Hide" : "Expand"}
+                        </span>
                       </button>
 
                       {isExpanded && (
-                        <div className="border-t border-neutral-300 p-4 text-sm">
-                          <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                              <dt className="text-[10px] font-mono uppercase text-neutral-500">
-                                Applicant
-                              </dt>
-                              <dd>{application.user_email}</dd>
-                            </div>
-                            <div>
-                              <dt className="text-[10px] font-mono uppercase text-neutral-500">
-                                Submitted
-                              </dt>
-                              <dd>{formatDate(application.created_at)}</dd>
-                            </div>
-                            <div>
-                              <dt className="text-[10px] font-mono uppercase text-neutral-500">
-                                Application type
-                              </dt>
-                              <dd>{application.application_type || "Not specified"}</dd>
-                            </div>
-                            <div>
-                              <dt className="text-[10px] font-mono uppercase text-neutral-500">
-                                Team members
-                              </dt>
-                              <dd className="whitespace-pre-wrap">
-                                {application.team_members || "None"}
-                              </dd>
-                            </div>
-                          </dl>
-                          <div className="mt-4">
-                            <dt className="text-[10px] font-mono uppercase text-neutral-500">
-                              Cover note
-                            </dt>
-                            <p className="mt-1 whitespace-pre-wrap">
-                              {application.cover_note || "No cover note provided."}
+                        <div className="border-t border-neutral-300 p-4">
+                          {projectApplications.length === 0 ? (
+                            <p className="text-sm text-neutral-600">
+                              No applications received yet.
                             </p>
-                          </div>
+                          ) : (
+                            <div className="space-y-4">
+                              {projectApplications.map((application) => {
+                                const canRespond =
+                                  application.status === "Applied";
+                                const isUpdating =
+                                  updatingId === application.application_id;
 
-                          {canRespond && (
-                            <div className="mt-5 flex flex-wrap gap-3">
-                              <button
-                                type="button"
-                                disabled={isUpdating}
-                                onClick={() =>
-                                  updateApplicationStatus(
-                                    application.application_id,
-                                    "Accepted"
-                                  )
-                                }
-                                className="px-4 py-2 bg-black text-white text-xs font-mono uppercase tracking-wider hover:bg-neutral-800 disabled:opacity-50"
-                              >
-                                {isUpdating ? "Updating..." : "Accept"}
-                              </button>
-                              <button
-                                type="button"
-                                disabled={isUpdating}
-                                onClick={() =>
-                                  updateApplicationStatus(
-                                    application.application_id,
-                                    "Rejected"
-                                  )
-                                }
-                                className="px-4 py-2 border border-black text-xs font-mono uppercase tracking-wider hover:bg-neutral-100 disabled:opacity-50"
-                              >
-                                {isUpdating ? "Updating..." : "Reject"}
-                              </button>
+                                return (
+                                  <div
+                                    key={application.application_id}
+                                    className="border border-neutral-300 p-4"
+                                  >
+                                    <div className="flex flex-col md:flex-row md:justify-between gap-3">
+                                      <div>
+                                        <p className="font-bold">
+                                          Student name unavailable
+                                        </p>
+                                        <p className="text-sm">
+                                          {application.user_email}
+                                        </p>
+                                        <p className="text-xs text-neutral-500 mt-1">
+                                          Submitted{" "}
+                                          {formatDate(application.created_at)}
+                                        </p>
+                                      </div>
+                                      <span
+                                        className={`self-start px-2 py-1 text-[10px] font-mono uppercase ${statusClasses(
+                                          application.status
+                                        )}`}
+                                      >
+                                        {application.status || "Applied"}
+                                      </span>
+                                    </div>
+
+                                    <dl className="mt-4 space-y-3 text-sm">
+                                      <div>
+                                        <dt className="text-[10px] font-mono uppercase text-neutral-500">
+                                          Application type
+                                        </dt>
+                                        <dd>
+                                          {application.application_type || "solo"}
+                                        </dd>
+                                      </div>
+                                      <div>
+                                        <dt className="text-[10px] font-mono uppercase text-neutral-500">
+                                          Cover note
+                                        </dt>
+                                        <dd className="mt-1 whitespace-pre-wrap">
+                                          {application.cover_note ||
+                                            "No cover note provided."}
+                                        </dd>
+                                      </div>
+                                    </dl>
+
+                                    {canRespond && (
+                                      <div className="mt-4 flex flex-wrap gap-3">
+                                        <button
+                                          type="button"
+                                          disabled={isUpdating}
+                                          onClick={() =>
+                                            updateApplicationStatus(
+                                              application.application_id,
+                                              "Accepted"
+                                            )
+                                          }
+                                          className="px-4 py-2 bg-black text-white text-xs font-mono uppercase tracking-wider hover:bg-neutral-800 disabled:opacity-50"
+                                        >
+                                          {isUpdating ? "Updating..." : "Accept"}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={isUpdating}
+                                          onClick={() =>
+                                            updateApplicationStatus(
+                                              application.application_id,
+                                              "Rejected"
+                                            )
+                                          }
+                                          className="px-4 py-2 border border-black text-xs font-mono uppercase tracking-wider hover:bg-neutral-100 disabled:opacity-50"
+                                        >
+                                          {isUpdating ? "Updating..." : "Reject"}
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
                       )}
-                    </article>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-        </>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
       )}
     </div>
   );
