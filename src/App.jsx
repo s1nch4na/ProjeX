@@ -82,32 +82,56 @@ function AppRoutes() {
         {/* STUDENT */}
         <Route
           path="/student"
-          element={<StudentDashboard />}
+          element={
+            <RoleRoute role="student">
+              <StudentDashboard />
+            </RoleRoute>
+          }
         />
 
         <Route
           path="/student/profile"
-          element={<StudentProfile />}
+          element={
+            <RoleRoute role="student">
+              <StudentProfile />
+            </RoleRoute>
+          }
         />
 
         <Route
           path="/student/profile/edit"
-          element={<EditProfile />}
+          element={
+            <RoleRoute role="student">
+              <EditProfile />
+            </RoleRoute>
+          }
         />
 
         <Route
           path="/student/challenges"
-          element={<StudentChallenges />}
+          element={
+            <RoleRoute role="student">
+              <StudentChallenges />
+            </RoleRoute>
+          }
         />
 
         <Route
           path="/student/resume"
-          element={<ResumeUpload />}
+          element={
+            <RoleRoute role="student">
+              <ResumeUpload />
+            </RoleRoute>
+          }
         />
 
         <Route
           path="/student/chat"
-          element={<StudentChat />}
+          element={
+            <RoleRoute role="student">
+              <StudentChat />
+            </RoleRoute>
+          }
         />
 
         {/* PROJECT OWNER */}

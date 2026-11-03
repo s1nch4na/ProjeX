@@ -1,40 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import ProfileCard from "../../components/ProfileCard";
-import HorizontalScroller from "../../components/HorizontalScroller";
-import mockTalents from "../../data/mockTalents";
+import { Link, useNavigate } from "react-router-dom";
 import { apiRequest } from "../../utils/api";
 
-const mockChats = [
-  {
-    id: 1,
-    name: "Alex Rivera",
-    role: "Full-Stack Builder",
-    lastMessage: "I've pushed the latest commit to the repo.",
-    messages: [
-      { sender: "them", text: "Hey! Saw your project listing." },
-      { sender: "me", text: "Hey Alex, ready to review the build?" },
-      { sender: "them", text: "I've pushed the latest commit to the repo." }
-    ]
-  }
-];
-
 export default function InvestorDashboard() {
-  // Chat Widget States
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [activeChat, setActiveChat] = useState(mockChats[0]);
-  const [chatInput, setChatInput] = useState("");
-  const [chats, setChats] = useState(mockChats);
-
-  // Post Project Modal & Form States
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({
-    title: "",
-    description: "",
-    budget: "",
-    deadline: ""
-  });
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
   const [applications, setApplications] = useState([]);
   const [dataLoading, setDataLoading] = useState(true);
@@ -146,67 +115,6 @@ export default function InvestorDashboard() {
     [projects, ownerApplications]
   );
 
-  const handleInputChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
-
-  // Backend submission handler
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-
-    try {
-      const storedUser = JSON.parse(
-        localStorage.getItem("projex_user") || "null"
-      );
-      const userId = storedUser?.id ?? storedUser?.user?.id;
-
-      if (!userId) {
-        throw new Error(
-          "Your login session was not found. Please log in again."
-        );
-      }
-
-      const payload = new FormData();
-      payload.append("user_id", String(userId));
-      payload.append("title", formData.title.trim());
-      payload.append("description", formData.description.trim());
-      payload.append("budget", formData.budget);
-      payload.append("deadline", formData.deadline);
-      payload.append("project_type", "Technology");
-
-      const response = await apiRequest("/api/projects", {
-        method: "POST",
-        body: payload,
-      });
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || "Could not post the project.");
-      }
-
-      alert("Project posted successfully!");
-      setFormData({ title: "", description: "", budget: "", deadline: "" });
-      setIsModalOpen(false);
-      await loadOwnerData();
-    } catch (err) {
-      console.error("Error posting project:", err);
-      alert(err.message || "Something went wrong while posting your project.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleSendChatMessage = (e) => {
-    e.preventDefault();
-    if (!chatInput.trim()) return;
-    const updatedMessages = [...activeChat.messages, { sender: "me", text: chatInput }];
-    const updatedChat = { ...activeChat, messages: updatedMessages, lastMessage: chatInput };
-    setActiveChat(updatedChat);
-    setChats(chats.map(c => c.id === updatedChat.id ? updatedChat : c));
-    setChatInput("");
-  };
-
   const formatDate = (value) => {
     if (!value) return "No deadline";
 
@@ -217,12 +125,8 @@ export default function InvestorDashboard() {
   };
 
   return (
-    <div className={`min-h-screen bg-[#F3F3EF] text-[#0A0A0A] font-sans px-6 md:px-12 py-12 relative selection:bg-black selection:text-white ${
-      isModalOpen ? "overflow-hidden" : ""
-    }`}>
-      
-      {/* BACKGROUND DASHBOARD (Blurs when modal opens) */}
-      <div className={`transition-all duration-300 ${isModalOpen ? "filter blur-sm pointer-events-none select-none" : ""}`}>
+    <div className="min-h-screen bg-[#F3F3EF] text-[#0A0A0A] font-sans px-6 md:px-12 py-12 relative selection:bg-black selection:text-white">
+      <div>
         
         {/* Dashboard Top Banner */}
         <div className="flex justify-between items-end mb-10 pb-4 border-b border-black">
@@ -248,18 +152,11 @@ export default function InvestorDashboard() {
           </div>
 
           <div className="border border-black bg-white p-6">
-            <HorizontalScroller>
-              {mockTalents.map((talent) => (
-                <ProfileCard
-                  key={talent.id}
-                  id={talent.id}
-                  name={talent.name}
-                  role={talent.role}
-                  skills={talent.skills}
-                  image={talent.image}
-                />
-              ))}
-            </HorizontalScroller>
+            <p className="text-sm leading-relaxed max-w-2xl">
+              The public talent directory is not available yet. Review
+              applicants from My Projects or start a conversation through the
+              authenticated Messages page.
+            </p>
           </div>
         </div>
 
@@ -327,7 +224,7 @@ export default function InvestorDashboard() {
               </p>
             </div>
             <button
-              onClick={() => setIsModalOpen(true)}
+              onClick={() => navigate("/project-owner/post")}
               className="w-full py-2.5 bg-black text-white text-center text-xs font-mono uppercase tracking-wider hover:bg-neutral-800 transition-colors block cursor-pointer"
             >
               Post a Project →
@@ -355,7 +252,7 @@ export default function InvestorDashboard() {
                 <p className="mb-3">No projects posted yet.</p>
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(true)}
+                  onClick={() => navigate("/project-owner/post")}
                   className="underline uppercase tracking-wider"
                 >
                   Post your first project →
@@ -444,184 +341,13 @@ export default function InvestorDashboard() {
         </section>
       )}
 
-      {/* STARK EDITORIAL MODAL POPUP (Matches your PostProject layout exactly) */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-          <div className="w-full max-w-3xl bg-white border border-black p-8 relative shadow-2xl">
-            
-            {/* Header with Close Button */}
-            <div className="mb-6 pb-4 border-b border-black flex justify-between items-end">
-              <div>
-                <span className="text-xs uppercase tracking-widest font-mono text-neutral-500">Registry System</span>
-                <h3 className="text-2xl font-bold tracking-tight uppercase mt-1">Create a Project</h3>
-              </div>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="w-8 h-8 bg-[#F3F3EF] border border-black text-black font-mono flex items-center justify-center hover:bg-black hover:text-white transition-colors cursor-pointer text-sm font-bold"
-                title="Close"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Form */}
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-mono uppercase tracking-wider text-neutral-600 mb-1">Project Title</label>
-                <input
-                  type="text"
-                  name="title"
-                  value={formData.title}
-                  onChange={handleInputChange}
-                  required
-                  placeholder="Title"
-                  className="w-full border border-black p-3 bg-[#F3F3EF] text-sm rounded-none focus:outline-none focus:ring-1 focus:ring-black"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-mono uppercase tracking-wider text-neutral-600 mb-1">Description & Scope</label>
-                <textarea
-                  name="description"
-                  value={formData.description}
-                  onChange={handleInputChange}
-                  required
-                  placeholder="Describe the project"
-                  className="w-full border border-black p-3 bg-[#F3F3EF] text-sm rounded-none focus:outline-none focus:ring-1 focus:ring-black resize-none"
-                  rows={6}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-mono uppercase tracking-wider text-neutral-600 mb-1">Budget</label>
-                  <input
-                    type="text"
-                    name="budget"
-                    value={formData.budget}
-                    onChange={handleInputChange}
-                    required
-                    placeholder="Budget (₹)"
-                    className="w-full border border-black p-3 bg-[#F3F3EF] text-sm rounded-none focus:outline-none focus:ring-1 focus:ring-black"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-mono uppercase tracking-wider text-neutral-600 mb-1">Target Deadline</label>
-                  <input
-                    type="text"
-                    name="deadline"
-                    value={formData.deadline}
-                    onChange={handleInputChange}
-                    required
-                    placeholder="Deadline"
-                    className="w-full border border-black p-3 bg-[#F3F3EF] text-sm rounded-none focus:outline-none focus:ring-1 focus:ring-black"
-                  />
-                </div>
-              </div>
-
-              <div className="mt-6 pt-4 border-t border-neutral-200 flex gap-3">
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-6 py-3 bg-black text-white text-xs font-mono uppercase tracking-wider hover:bg-neutral-800 transition-colors rounded-none disabled:opacity-50 cursor-pointer"
-                >
-                  {isSubmitting ? "Posting..." : "Post →"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-6 py-3 border border-black text-xs font-mono uppercase tracking-wider hover:bg-neutral-100 transition-colors rounded-none cursor-pointer"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-
-          </div>
-        </div>
-      )}
-
-      {/* FLOATING REDDIT-STYLE CHAT WIDGET (Bottom Right Overlay) */}
       <div className="fixed bottom-6 right-6 z-40">
-        {!isChatOpen ? (
-          <button
-            onClick={() => setIsChatOpen(true)}
-            className="w-12 h-12 bg-black text-white border border-black flex items-center justify-center shadow-xl hover:bg-neutral-800 transition-all font-mono text-lg cursor-pointer"
-            title="Open Chats"
-          >
-            ▲
-          </button>
-        ) : (
-          <div className="w-[360px] sm:w-[480px] h-[420px] bg-white border-2 border-black shadow-2xl flex flex-col">
-            <div className="bg-black text-white px-4 py-3 flex justify-between items-center">
-              <span className="text-xs font-mono uppercase tracking-widest">
-                Direct Messages ({chats.length})
-              </span>
-              <button
-                onClick={() => setIsChatOpen(false)}
-                className="w-7 h-7 bg-white text-black font-mono flex items-center justify-center hover:bg-neutral-200 transition-colors text-xs font-bold cursor-pointer"
-                title="Minimize Chat"
-              >
-                ▼
-              </button>
-            </div>
-
-            <div className="grid grid-cols-12 flex-1 overflow-hidden">
-              <div className="col-span-5 border-r border-black overflow-y-auto bg-[#F3F3EF] divide-y divide-neutral-200">
-                {chats.map((c) => {
-                  const isSelected = activeChat.id === c.id;
-                  return (
-                    <div
-                      key={c.id}
-                      onClick={() => setActiveChat(c)}
-                      className={`p-3 cursor-pointer text-xs transition-colors ${
-                        isSelected ? "bg-black text-white" : "hover:bg-neutral-200 text-black"
-                      }`}
-                    >
-                      <p className="font-bold uppercase truncate">{c.name}</p>
-                      <p className={`text-[10px] truncate ${isSelected ? "text-neutral-300" : "text-neutral-500"}`}>
-                        {c.lastMessage}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="col-span-7 flex flex-col justify-between bg-white">
-                <div className="p-3 overflow-y-auto flex-1 space-y-2 max-h-[260px]">
-                  {activeChat.messages.map((m, idx) => {
-                    const mine = m.sender === "me";
-                    return (
-                      <div key={idx} className={`flex flex-col ${mine ? "items-end" : "items-start"}`}>
-                        <div className={`p-2 text-[11px] border max-w-[90%] ${
-                          mine ? "bg-black text-white border-black" : "bg-[#F3F3EF] text-black border-neutral-300"
-                        }`}>
-                          {m.text}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <form onSubmit={handleSendChatMessage} className="p-2 border-t border-black bg-white flex gap-1">
-                  <input
-                    type="text"
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Type message..."
-                    className="flex-1 px-3 py-1.5 bg-[#F3F3EF] border border-black text-xs text-black placeholder-neutral-500 focus:outline-none"
-                  />
-                  <button
-                    type="submit"
-                    className="px-3 py-1.5 bg-black text-white text-[10px] font-mono uppercase hover:bg-neutral-800 cursor-pointer"
-                  >
-                    Send
-                  </button>
-                </form>
-              </div>
-            </div>
-          </div>
-        )}
+        <Link
+          to="/project-owner/chat"
+          className="block bg-black text-white border border-black px-4 py-3 shadow-xl hover:bg-neutral-800 transition-all text-xs font-mono uppercase tracking-wider"
+        >
+          Open Messages →
+        </Link>
       </div>
 
     </div>

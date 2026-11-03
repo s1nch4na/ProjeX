@@ -1,13 +1,44 @@
-import React, { useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import ProjectCard from "../components/ProjectCard";
-import ProfileCard from "../components/ProfileCard";
-import { projects, profiles } from "../utils/mockData";
+import { apiRequest } from "../utils/api";
 
 export default function Landing() {
   const navigate = useNavigate();
   const projectRef = useRef(null);
   const profileRef = useRef(null);
+  const [projects, setProjects] = useState([]);
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [projectsError, setProjectsError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProjects() {
+      try {
+        const response = await apiRequest("/api/projects");
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || "Could not load projects.");
+        }
+
+        if (!cancelled) setProjects(data.projects || []);
+      } catch (error) {
+        if (!cancelled) {
+          setProjectsError(error.message || "Could not load projects.");
+        }
+      } finally {
+        if (!cancelled) setProjectsLoading(false);
+      }
+    }
+
+    loadProjects();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handlePostProject = () => {
     let user = null;
@@ -86,22 +117,22 @@ export default function Landing() {
         <div className="px-12 py-8 flex flex-col justify-between">
           <span className="text-xs uppercase tracking-widest font-mono text-neutral-500">01 / Active Pool</span>
           <div className="mt-4">
-            <h3 className="text-4xl font-bold tracking-tight">500+</h3>
-            <p className="text-sm text-neutral-600 mt-1">Verified Student Builders</p>
+            <h3 className="text-2xl font-bold tracking-tight">STUDENTS</h3>
+            <p className="text-sm text-neutral-600 mt-1">Build with real opportunities</p>
           </div>
         </div>
         <div className="px-12 py-8 flex flex-col justify-between">
           <span className="text-xs uppercase tracking-widest font-mono text-neutral-500">02 / Execution</span>
           <div className="mt-4">
-            <h3 className="text-4xl font-bold tracking-tight">120+</h3>
-            <p className="text-sm text-neutral-600 mt-1">Live Projects Deployed</p>
+            <h3 className="text-2xl font-bold tracking-tight">PROJECTS</h3>
+            <p className="text-sm text-neutral-600 mt-1">Browse live project openings</p>
           </div>
         </div>
         <div className="px-12 py-8 flex flex-col justify-between">
           <span className="text-xs uppercase tracking-widest font-mono text-neutral-500">03 / Partners</span>
           <div className="mt-4">
-            <h3 className="text-4xl font-bold tracking-tight">40+</h3>
-            <p className="text-sm text-neutral-600 mt-1">Startups & Founders</p>
+            <h3 className="text-2xl font-bold tracking-tight">OWNERS</h3>
+            <p className="text-sm text-neutral-600 mt-1">Connect with project owners</p>
           </div>
         </div>
       </section>
@@ -137,9 +168,30 @@ export default function Landing() {
             ref={projectRef}
             className="flex gap-6 overflow-x-auto no-scrollbar pb-4"
           >
-            {projects.map((project) => (
+            {projectsLoading && (
+              <p className="border border-black bg-white p-6 text-sm">
+                Loading project openings...
+              </p>
+            )}
+            {!projectsLoading && projectsError && (
+              <p role="alert" className="border border-red-600 bg-white p-6 text-sm text-red-700">
+                {projectsError}
+              </p>
+            )}
+            {!projectsLoading && !projectsError && projects.length === 0 && (
+              <p className="border border-black bg-white p-6 text-sm">
+                No project openings are available yet.
+              </p>
+            )}
+            {!projectsLoading && !projectsError && projects.map((project) => (
               <div key={project.id} className="min-w-[320px] max-w-[320px] flex-shrink-0">
-                <ProjectCard {...project} />
+                <ProjectCard
+                  id={project.id}
+                  title={project.title}
+                  meta={project.meta || project.project_type || "General"}
+                  price={project.price}
+                  image={project.image_url}
+                />
               </div>
             ))}
           </div>
@@ -177,11 +229,10 @@ export default function Landing() {
             ref={profileRef}
             className="flex gap-6 overflow-x-auto no-scrollbar pb-4"
           >
-            {profiles.map((profile) => (
-              <div key={profile.id} className="min-w-[260px] max-w-[260px] flex-shrink-0">
-                <ProfileCard {...profile} />
-              </div>
-            ))}
+            <div className="border border-black bg-white p-6 text-sm max-w-xl">
+              Student profiles become available through project applications and
+              authenticated collaboration. There is no public talent directory yet.
+            </div>
           </div>
         </div>
       </section>

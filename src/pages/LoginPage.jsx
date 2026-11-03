@@ -146,7 +146,7 @@ export default function LoginPage() {
       if (user.role === "investor") {
         navigate(location.state?.returnTo || "/project-owner");
       } else {
-        navigate("/student");
+        navigate(location.state?.returnTo || "/student");
       }
 
     } catch (error) {

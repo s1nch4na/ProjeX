@@ -308,14 +308,28 @@ export default function ProjectDetails() {
                   </div>
                 </div>
 
-                {currentUser?.role === "student" && (
+                {currentUser?.role === "student" ? (
                   <button
                     onClick={() => setIsApplyModalOpen(true)}
                     className="w-full bg-black text-white py-3 text-xs uppercase tracking-widest font-bold border-2 border-black hover:bg-neutral-800 transition cursor-pointer text-center mt-6"
                   >
                     Apply For Project →
                   </button>
-                )}
+                ) : !currentUser ? (
+                  <button
+                    onClick={() =>
+                      navigate("/login", {
+                        state: {
+                          authRole: "student",
+                          returnTo: `/projects/${id}`,
+                        },
+                      })
+                    }
+                    className="w-full bg-black text-white py-3 text-xs uppercase tracking-widest font-bold border-2 border-black hover:bg-neutral-800 transition cursor-pointer text-center mt-6"
+                  >
+                    Log In To Apply →
+                  </button>
+                ) : null}
               </div>
             </div>
 
@@ -393,7 +407,8 @@ export default function ProjectDetails() {
                               <div className="flex flex-col md:flex-row md:justify-between gap-3">
                                 <div>
                                   <p className="font-bold">
-                                    Applicant name unavailable
+                                    {application.applicant_name ||
+                                      "Applicant name unavailable"}
                                   </p>
                                   <p className="text-sm">
                                     {application.user_email}

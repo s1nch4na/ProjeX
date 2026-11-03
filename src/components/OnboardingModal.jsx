@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { completeOnboarding } from "../utils/api";
+import { completeProfile } from "../utils/api";
 
 export default function OnboardingModal({ user, onComplete }) {
   const [bio, setBio] = useState("");
@@ -11,14 +11,19 @@ export default function OnboardingModal({ user, onComplete }) {
     setLoading(true);
     
     // Send onboarding data to backend
-    const success = await completeOnboarding({
+    const result = await completeProfile({
       email: user.email,
+      name: user.name || "",
+      position: user.position || "Student",
       bio,
-      skills
+      skills: skills
+        .split(",")
+        .map((skill) => skill.trim())
+        .filter(Boolean),
     });
 
     setLoading(false);
-    if (success) {
+    if (result?.success) {
       onComplete(); // Close modal and proceed to dashboard
     } else {
       alert("Failed to save profile details.");

@@ -130,7 +130,8 @@ app.use(
   cors({
     origin: [
       "https://proje-x-five.vercel.app",
-      "http://localhost:5173"
+      "http://localhost:5173",
+      "http://127.0.0.1:5173"
     ],
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -158,10 +159,31 @@ app.post('/api/auth/signup', async (req, res) => {
 
   const { name, email, password, role } = req.body;
 
+  if (
+    typeof name !== 'string' ||
+    !name.trim() ||
+    typeof email !== 'string' ||
+    !email.trim() ||
+    typeof password !== 'string' ||
+    password.length < 8
+  ) {
+    return res.status(400).json({
+      success: false,
+      error: 'Name, email, and a password of at least 8 characters are required.',
+    });
+  }
+
+  if (role !== undefined && role !== 'student' && role !== 'investor') {
+    return res.status(400).json({
+      success: false,
+      error: 'Account role must be student or investor.',
+    });
+  }
+
   try {
     const existingUser = await pool.query(
       'SELECT * FROM users WHERE email = $1',
-      [email]
+      [email.trim()]
     );
 
     if (existingUser.rows.length > 0) {
@@ -185,8 +207,8 @@ app.post('/api/auth/signup', async (req, res) => {
        VALUES ($1, $2, $3, $4, false)
        RETURNING *`,
       [
-        email,
-        name,
+        email.trim(),
+        name.trim(),
         role || 'student',
         hashedPassword
       ]
@@ -222,10 +244,22 @@ app.post('/api/auth/login', async (req, res) => {
 
   const { email, password } = req.body;
 
+  if (
+    typeof email !== 'string' ||
+    !email.trim() ||
+    typeof password !== 'string' ||
+    !password
+  ) {
+    return res.status(400).json({
+      success: false,
+      error: 'Email and password are required.',
+    });
+  }
+
   try {
     const result = await pool.query(
       'SELECT * FROM users WHERE email = $1',
-      [email]
+      [email.trim()]
     );
 
     if (result.rows.length === 0) {
@@ -845,6 +879,7 @@ app.get(
            p.deadline AS project_deadline,
            p.project_type,
            p.image_url,
+           u.name AS applicant_name,
            pa.user_email,
            pa.application_type,
            pa.team_members,
@@ -854,6 +889,8 @@ app.get(
          FROM project_applications pa
          JOIN projects p
            ON p.id::text = pa.project_id
+         LEFT JOIN users u
+           ON LOWER(u.email) = LOWER(pa.user_email)
          WHERE p.user_id = $1
          ORDER BY pa.created_at DESC, pa.id DESC`,
         [req.user.id]
@@ -1248,39 +1285,6 @@ app.post('/api/messages', requireAuth, async (req, res) => {
   }
 });
 
-
-/* GET ALL PROJECTS */
-app.get("/api/projects", async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT
-        id,
-        user_id,
-        title,
-        description,
-        meta,
-        price,
-        deadline,
-        project_type,
-        image_url,
-        created_at
-      FROM projects
-      ORDER BY created_at DESC, id DESC
-    `);
-
-    res.json({
-      success: true,
-      projects: result.rows,
-    });
-  } catch (error) {
-    console.error("Fetch projects error:", error);
-
-    res.status(500).json({
-      success: false,
-      error: "Could not load projects.",
-    });
-  }
-});
 
 // =====================================================
 // SERVER

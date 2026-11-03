@@ -51,7 +51,7 @@ export default function Signup({ onSwitchToLogin, onSuccess }) {
           <label>Role</label>
           <select value={role} onChange={(e) => setRole(e.target.value)}>
             <option value="student">Student</option>
-            <option value="creator">Creator / Seller</option>
+            <option value="investor">Project Owner</option>
           </select>
         </div>
         <button type="submit">Sign Up</button>

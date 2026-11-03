@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 
 import ProjectCard from "../../components/ProjectCard";
 import HorizontalScroller from "../../components/HorizontalScroller";
+import ProjectApplicationModal from "../../components/ProjectApplicationModal";
 
 import StudentChallenges from "./StudentChallenges";
 import StudentChat from "./StudentChat";
@@ -13,16 +14,7 @@ export default function StudentDashboard() {
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState("projects");
-
-  // Temporary student profile data
-  const studentProfile = {
-    id: 1,
-    name: "Alex Rivera",
-    email: "alex.rivera@jainuniversity.ac.in",
-    role: "Full-Stack Builder & UI Enthusiast",
-    bio: "Computer Science student specializing in React, full-stack architectures, and modern web animations.",
-    avatar: "https://placehold.co/200x200",
-  };
+  const [studentProfile, setStudentProfile] = useState(null);
 
   // Live projects from the backend
   const [projects, setProjects] = useState([]);
@@ -34,9 +26,21 @@ export default function StudentDashboard() {
   const [applicationsError, setApplicationsError] = useState("");
   const [applicationsRetry, setApplicationsRetry] = useState(0);
   const [expandedApplicationId, setExpandedApplicationId] = useState(null);
+  const [applicationProject, setApplicationProject] = useState(null);
 
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("newest");
+
+  useEffect(() => {
+    try {
+      setStudentProfile(
+        JSON.parse(localStorage.getItem("projex_user") || "null")
+      );
+    } catch (error) {
+      console.error("Could not read ProJeX user:", error);
+      setStudentProfile(null);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -220,15 +224,16 @@ export default function StudentDashboard() {
           </div>
 
           <button
-            onClick={() => navigate(`/creators/${studentProfile.id}`)}
+            onClick={() =>
+              studentProfile?.id &&
+              navigate(`/creators/${studentProfile.id}`)
+            }
             className="w-10 h-10 rounded-full border border-black overflow-hidden bg-white hover:opacity-80 transition-opacity cursor-pointer flex items-center justify-center shadow-sm"
             title="View Profile"
           >
-            <img
-              src={studentProfile.avatar}
-              alt={studentProfile.name}
-              className="w-full h-full object-cover"
-            />
+            <span className="text-sm font-bold">
+              {studentProfile?.name?.charAt(0)?.toUpperCase() || "U"}
+            </span>
           </button>
 
         </div>
@@ -510,7 +515,10 @@ export default function StudentDashboard() {
                           key={project.id}
                           className="min-w-[320px]"
                         >
-                          <ProjectCard {...project} />
+                          <ProjectCard
+                            {...project}
+                            onApply={setApplicationProject}
+                          />
                         </div>
                       ))}
                     </HorizontalScroller>
@@ -544,6 +552,7 @@ export default function StudentDashboard() {
                       <ProjectCard
                         key={project.id}
                         {...project}
+                        onApply={setApplicationProject}
                       />
                     ))}
                   </div>
@@ -576,6 +585,17 @@ export default function StudentDashboard() {
         <div className="bg-white border border-black p-6">
           <StudentChat />
         </div>
+      )}
+
+      {applicationProject && (
+        <ProjectApplicationModal
+          projectId={applicationProject.id}
+          onClose={() => setApplicationProject(null)}
+          onSuccess={() => {
+            setApplicationProject(null);
+            setApplicationsRetry((value) => value + 1);
+          }}
+        />
       )}
 
     </div>
