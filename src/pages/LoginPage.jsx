@@ -6,7 +6,9 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(
+    location.state?.authMode === "signup"
+  );
   const [role, setRole] = useState(
     location.state?.authRole === "investor" ? "investor" : "student"
   );

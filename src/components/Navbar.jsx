@@ -1,25 +1,24 @@
-// src/components/Navbar.jsx
-
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { clearAuthSession } from "../utils/api";
 
+const linkClass =
+  "text-sm text-neutral-600 transition-colors hover:text-black";
+const mobileLinkClass =
+  "block border-b border-neutral-200 py-3 text-sm text-neutral-700 hover:text-black";
+
 export default function Navbar() {
   const navigate = useNavigate();
-
+  const profileMenuRef = useRef(null);
   const [user, setUser] = useState(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Read logged-in user
   useEffect(() => {
     const loadUser = () => {
       try {
         const savedUser = localStorage.getItem("projex_user");
-
-        if (savedUser) {
-          setUser(JSON.parse(savedUser));
-        } else {
-          setUser(null);
-        }
+        setUser(savedUser ? JSON.parse(savedUser) : null);
       } catch (error) {
         console.error("Could not read ProJeX user:", error);
         setUser(null);
@@ -27,8 +26,6 @@ export default function Navbar() {
     };
 
     loadUser();
-
-    // Update navbar when login/signup changes localStorage
     window.addEventListener("storage", loadUser);
     window.addEventListener("projex-auth-change", loadUser);
 
@@ -38,133 +35,256 @@ export default function Navbar() {
     };
   }, []);
 
+  useEffect(() => {
+    const closeMenus = (event) => {
+      if (!profileMenuRef.current?.contains(event.target)) {
+        setProfileOpen(false);
+      }
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") {
+        setProfileOpen(false);
+        setMobileOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", closeMenus);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeMenus);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, []);
+
   const handleLogout = () => {
     clearAuthSession();
     setUser(null);
-
-    navigate("/login");
+    setProfileOpen(false);
+    setMobileOpen(false);
+    navigate("/");
   };
 
-  // Open logged-in user's actual profile
-  const handleProfileClick = () => {
-    if (!user?.id) {
-      console.error("No user ID found in projex_user");
-      return;
-    }
-
-    navigate(`/creators/${user.id}`);
-  };
+  const closeMobileMenu = () => setMobileOpen(false);
+  const profilePath = user?.id ? `/creators/${user.id}` : "/login";
+  const isOwner = user?.role === "investor";
 
   return (
-    <nav className="w-full bg-white border-b border-black px-6 md:px-12 py-4 flex items-center justify-between sticky top-0 z-40">
+    <nav className="sticky top-0 z-40 w-full border-b border-neutral-200 bg-white/95 backdrop-blur">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 sm:px-8">
+        <Link
+          to="/"
+          onClick={closeMobileMenu}
+          className="text-lg font-semibold tracking-[-0.04em] text-black"
+        >
+          PROJEX<span className="text-neutral-400">.REG</span>
+        </Link>
 
-      {/* LOGO */}
-      <Link
-        to="/"
-        className="font-bold text-xl tracking-tight uppercase"
-      >
-        PROJEX{" "}
-        <span className="text-xs font-mono font-normal text-neutral-500">
-          .REG
-        </span>
-      </Link>
+        {user && (
+          <div className="hidden items-center gap-7 md:flex">
+            {isOwner ? (
+              <>
+                <Link to="/project-owner/talent" className={linkClass}>
+                  Discover Talent
+                </Link>
+                <Link to="/project-owner/projects" className={linkClass}>
+                  My Projects
+                </Link>
+                <Link to="/project-owner/chat" className={linkClass}>
+                  Messages
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link to="/student" className={linkClass}>
+                  Explore
+                </Link>
+                <Link to="/challenges" className={linkClass}>
+                  Challenges
+                </Link>
+                <Link to="/student/chat" className={linkClass}>
+                  Messages
+                </Link>
+              </>
+            )}
+          </div>
+        )}
 
-      {/* SEARCH */}
-      <div className="hidden md:flex items-center flex-1 max-w-md mx-8">
-        <input
-          type="text"
-          placeholder="Search projects, creators..."
-          className="w-full bg-[#F3F3EF] border border-black px-4 py-2 text-xs font-mono uppercase tracking-wider placeholder-neutral-500 focus:outline-none"
-        />
-      </div>
-
-      {/* RIGHT SIDE */}
-      <div className="flex items-center gap-4">
-
-        {!user ? (
-          /* NOT LOGGED IN */
-          <Link
-            to="/login"
-            className="px-4 py-2 bg-black text-white text-xs font-mono uppercase tracking-wider hover:bg-neutral-800 transition-colors"
-          >
-            Login / Signup
-          </Link>
-        ) : (
-          /* LOGGED IN */
-          <>
-            <div className="hidden lg:flex items-center gap-4">
-              <Link
-                to={user.role === "investor" ? "/project-owner" : "/student"}
-                className="text-[10px] font-mono uppercase tracking-wider hover:underline"
-              >
-                Dashboard
+        <div className="flex items-center gap-3">
+          {!user ? (
+            <div className="hidden items-center gap-5 sm:flex">
+              <Link to="/login" className={linkClass}>
+                Log in
               </Link>
-              {user.role === "investor" ? (
-                <>
+              <Link
+                to="/login"
+                state={{ authMode: "signup" }}
+                className="rounded-md bg-black px-4 py-2 text-sm text-white transition-colors hover:bg-neutral-800"
+              >
+                Sign up
+              </Link>
+            </div>
+          ) : (
+            <div className="relative hidden md:block" ref={profileMenuRef}>
+              <button
+                type="button"
+                onClick={() => setProfileOpen((open) => !open)}
+                aria-expanded={profileOpen}
+                aria-haspopup="menu"
+                className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-neutral-700 transition-colors hover:bg-neutral-100"
+              >
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-neutral-100 text-xs font-medium text-black">
+                  {user.name?.charAt(0)?.toUpperCase() || "U"}
+                </span>
+                <span className="max-w-28 truncate">
+                  {user.name?.split(" ")[0] || "Account"}
+                </span>
+                <span className="text-xs text-neutral-400" aria-hidden="true">
+                  ▾
+                </span>
+              </button>
+
+              {profileOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 mt-2 w-52 rounded-lg border border-neutral-200 bg-white p-1.5 shadow-lg"
+                >
                   <Link
-                    to="/project-owner/projects"
-                    className="text-[10px] font-mono uppercase tracking-wider hover:underline"
+                    to={profilePath}
+                    onClick={() => setProfileOpen(false)}
+                    className="block rounded-md px-3 py-2 text-sm hover:bg-neutral-100"
+                    role="menuitem"
                   >
-                    My Projects
+                    Profile
                   </Link>
                   <Link
-                    to="/project-owner/post"
-                    className="text-[10px] font-mono uppercase tracking-wider hover:underline"
+                    to={isOwner ? "/project-owner" : "/student"}
+                    onClick={() => setProfileOpen(false)}
+                    className="block rounded-md px-3 py-2 text-sm hover:bg-neutral-100"
+                    role="menuitem"
                   >
-                    Post a Project
+                    Dashboard
+                  </Link>
+                  {isOwner && (
+                    <Link
+                      to="/project-owner/post"
+                      onClick={() => setProfileOpen(false)}
+                      className="block rounded-md px-3 py-2 text-sm hover:bg-neutral-100"
+                      role="menuitem"
+                    >
+                      Post a Project
+                    </Link>
+                  )}
+                  {user.is_admin && (
+                    <Link
+                      to="/admin/challenges"
+                      onClick={() => setProfileOpen(false)}
+                      className="block rounded-md px-3 py-2 text-sm hover:bg-neutral-100"
+                      role="menuitem"
+                    >
+                      Manage Challenges
+                    </Link>
+                  )}
+                  <div className="my-1 border-t border-neutral-200" />
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="block w-full rounded-md px-3 py-2 text-left text-sm text-neutral-600 hover:bg-neutral-100 hover:text-black"
+                    role="menuitem"
+                  >
+                    Log out
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setMobileOpen((open) => !open)}
+            aria-expanded={mobileOpen}
+            aria-controls="mobile-navigation"
+            className="rounded-md p-2 text-neutral-700 hover:bg-neutral-100 md:hidden"
+            aria-label={mobileOpen ? "Close navigation menu" : "Open navigation menu"}
+          >
+            <span className="sr-only">
+              {mobileOpen ? "Close menu" : "Open menu"}
+            </span>
+            <span className="block h-0.5 w-5 bg-current" />
+            <span className="mt-1.5 block h-0.5 w-5 bg-current" />
+          </button>
+        </div>
+      </div>
+
+      {mobileOpen && (
+        <div id="mobile-navigation" className="border-t border-neutral-200 bg-white px-5 pb-4 sm:px-8 md:hidden">
+          {user ? (
+            <>
+              {isOwner ? (
+                <>
+                  <Link to="/project-owner/talent" onClick={closeMobileMenu} className={mobileLinkClass}>
+                    Discover Talent
+                  </Link>
+                  <Link to="/project-owner/projects" onClick={closeMobileMenu} className={mobileLinkClass}>
+                    My Projects
+                  </Link>
+                  <Link to="/project-owner/chat" onClick={closeMobileMenu} className={mobileLinkClass}>
+                    Messages
                   </Link>
                 </>
               ) : (
-                <Link
-                  to="/student"
-                  className="text-[10px] font-mono uppercase tracking-wider hover:underline"
-                >
-                  Browse Projects
+                <>
+                  <Link to="/student" onClick={closeMobileMenu} className={mobileLinkClass}>
+                    Explore
+                  </Link>
+                  <Link to="/challenges" onClick={closeMobileMenu} className={mobileLinkClass}>
+                    Challenges
+                  </Link>
+                  <Link to="/student/chat" onClick={closeMobileMenu} className={mobileLinkClass}>
+                    Messages
+                  </Link>
+                </>
+              )}
+              <Link to={profilePath} onClick={closeMobileMenu} className={mobileLinkClass}>
+                Profile
+              </Link>
+              <Link to={isOwner ? "/project-owner" : "/student"} onClick={closeMobileMenu} className={mobileLinkClass}>
+                Dashboard
+              </Link>
+              {isOwner && (
+                <Link to="/project-owner/post" onClick={closeMobileMenu} className={mobileLinkClass}>
+                  Post a Project
                 </Link>
               )}
-              <Link
-                to="/challenges"
-                className="text-[10px] font-mono uppercase tracking-wider hover:underline"
-              >
-                Challenges
-              </Link>
               {user.is_admin && (
-                <Link
-                  to="/admin/challenges"
-                  className="text-[10px] font-mono uppercase tracking-wider hover:underline"
-                >
+                <Link to="/admin/challenges" onClick={closeMobileMenu} className={mobileLinkClass}>
                   Manage Challenges
                 </Link>
               )}
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="mt-3 w-full rounded-md border border-neutral-300 px-3 py-2.5 text-left text-sm text-neutral-700 hover:border-black hover:text-black"
+              >
+                Log out
+              </button>
+            </>
+          ) : (
+            <div className="flex flex-col gap-1">
+              <Link to="/login" onClick={closeMobileMenu} className={mobileLinkClass}>
+                Log in
+              </Link>
+              <Link
+                to="/login"
+                state={{ authMode: "signup" }}
+                onClick={closeMobileMenu}
+                className="mt-3 rounded-md bg-black px-3 py-2.5 text-center text-sm text-white"
+              >
+                Sign up
+              </Link>
             </div>
-
-            {/* GREETING */}
-            <span className="hidden sm:block text-xs font-mono uppercase tracking-wider">
-              Hi, {user.name?.split(" ")[0] || "there"} 👋
-            </span>
-
-            {/* PROFILE CIRCLE */}
-            <button
-              onClick={handleProfileClick}
-              className="w-10 h-10 rounded-full border border-black overflow-hidden bg-[#F3F3EF] hover:opacity-80 transition-opacity cursor-pointer flex items-center justify-center"
-              title="Open Profile"
-            >
-              <span className="text-sm font-bold">
-                {user.name?.charAt(0)?.toUpperCase() || "U"}
-              </span>
-            </button>
-
-            {/* LOGOUT */}
-            <button
-              onClick={handleLogout}
-              className="hidden sm:block text-[10px] font-mono uppercase tracking-wider border border-black px-3 py-2 hover:bg-black hover:text-white transition"
-            >
-              Logout
-            </button>
-          </>
-        )}
-
-      </div>
+          )}
+        </div>
+      )}
     </nav>
   );
 }
