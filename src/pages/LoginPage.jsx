@@ -20,6 +20,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const googleButtonRef = useRef(null);
+  const googleAuthInFlightRef = useRef(false);
 
   const finishAuthentication = useCallback((user) => {
     localStorage.setItem("projex_user", JSON.stringify(user));
@@ -42,6 +43,42 @@ export default function LoginPage() {
     );
   }, [location.state?.returnTo, navigate]);
 
+  const handleGoogleCredential = useCallback(async (response) => {
+    const credential = response?.credential;
+
+    if (!credential) {
+      console.error("Google Sign-In returned no credential.");
+      setError("Google Sign-In did not return a credential. Please try again.");
+      return;
+    }
+
+    if (googleAuthInFlightRef.current) {
+      return;
+    }
+
+    googleAuthInFlightRef.current = true;
+    setError("");
+    setLoading(true);
+
+    try {
+      const user = await loginWithGoogle(
+        credential,
+        isSignUp ? role : undefined
+      );
+      console.info("Google authentication completed.");
+      finishAuthentication(user);
+    } catch (googleError) {
+      console.error("Google authentication request failed:", googleError);
+      setError(
+        googleError.message ||
+          "Google authentication failed. Please try again."
+      );
+    } finally {
+      googleAuthInFlightRef.current = false;
+      setLoading(false);
+    }
+  }, [finishAuthentication, isSignUp, role]);
+
   useEffect(() => {
     const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
     if (!clientId || !googleButtonRef.current) return undefined;
@@ -51,18 +88,7 @@ export default function LoginPage() {
       googleButtonRef.current.replaceChildren();
       window.google.accounts.id.initialize({
         client_id: clientId,
-        callback: async ({ credential }) => {
-          setError("");
-          setLoading(true);
-          try {
-            const user = await loginWithGoogle(credential, isSignUp ? role : undefined);
-            finishAuthentication(user);
-          } catch (googleError) {
-            setError(googleError.message || "Google authentication failed.");
-          } finally {
-            setLoading(false);
-          }
-        },
+        callback: handleGoogleCredential,
       });
       window.google.accounts.id.renderButton(googleButtonRef.current, {
         theme: "outline",
@@ -88,7 +114,7 @@ export default function LoginPage() {
     return () => {
       script.onload = null;
     };
-  }, [finishAuthentication, isSignUp, role]);
+  }, [handleGoogleCredential, isSignUp]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
