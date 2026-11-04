@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { loginUser, signupUser } from "../utils/api";
+import { loginUser, loginWithGoogle } from "../utils/api";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -19,6 +19,76 @@ export default function LoginPage() {
 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const googleButtonRef = useRef(null);
+
+  const finishAuthentication = useCallback((user) => {
+    localStorage.setItem("projex_user", JSON.stringify(user));
+    window.dispatchEvent(new Event("projex-auth-change"));
+
+    const profileComplete =
+      user.is_profile_complete === true ||
+      user.is_profile_complete === "true";
+
+    if (!profileComplete) {
+      navigate("/profile-onboarding", {
+        state: { user, returnTo: location.state?.returnTo },
+      });
+      return;
+    }
+
+    navigate(
+      location.state?.returnTo ||
+        (user.role === "investor" ? "/project-owner" : "/student")
+    );
+  }, [location.state?.returnTo, navigate]);
+
+  useEffect(() => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if (!clientId || !googleButtonRef.current) return undefined;
+
+    const renderGoogleButton = () => {
+      if (!window.google?.accounts?.id || !googleButtonRef.current) return;
+      googleButtonRef.current.replaceChildren();
+      window.google.accounts.id.initialize({
+        client_id: clientId,
+        callback: async ({ credential }) => {
+          setError("");
+          setLoading(true);
+          try {
+            const user = await loginWithGoogle(credential, isSignUp ? role : undefined);
+            finishAuthentication(user);
+          } catch (googleError) {
+            setError(googleError.message || "Google authentication failed.");
+          } finally {
+            setLoading(false);
+          }
+        },
+      });
+      window.google.accounts.id.renderButton(googleButtonRef.current, {
+        theme: "outline",
+        size: "large",
+        width: 430,
+        text: isSignUp ? "signup_with" : "signin_with",
+      });
+    };
+
+    if (window.google?.accounts?.id) {
+      renderGoogleButton();
+      return undefined;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.onload = renderGoogleButton;
+    script.onerror = () => setError("Google Sign-In could not be loaded.");
+    document.head.appendChild(script);
+
+    return () => {
+      script.onload = null;
+    };
+  }, [finishAuthentication, isSignUp, role]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -42,30 +112,8 @@ export default function LoginPage() {
       // SIGN UP
       // ================================
       if (isSignUp) {
-        if (!formData.name.trim()) {
-          setError("Please enter your name.");
-          setLoading(false);
-          return;
-        }
-
-        if (!formData.email.trim()) {
-          setError("Please enter your email.");
-          setLoading(false);
-          return;
-        }
-
-        if (!formData.password) {
-          setError("Please enter a password.");
-          setLoading(false);
-          return;
-        }
-
-        user = await signupUser({
-          name: formData.name.trim(),
-          email: formData.email.trim(),
-          password: formData.password,
-          role,
-        });
+        setError("New accounts must be created with Google Sign-In.");
+        return;
 
       // ================================
       // LOGIN
@@ -112,42 +160,7 @@ export default function LoginPage() {
       // ================================
       // SAVE CURRENT USER
       // ================================
-      localStorage.setItem(
-        "projex_user",
-        JSON.stringify(user)
-      );
-
-      // Tell Navbar that auth state changed
-      window.dispatchEvent(
-        new Event("projex-auth-change")
-      );
-
-      // ================================
-      // PROFILE NOT COMPLETE
-      // ================================
-      const profileComplete =
-        user.is_profile_complete === true ||
-        user.is_profile_complete === "true";
-
-      if (!profileComplete) {
-        navigate("/profile-onboarding", {
-          state: {
-            user,
-            returnTo: location.state?.returnTo,
-          },
-        });
-
-        return;
-      }
-
-      // ================================
-      // PROFILE COMPLETE
-      // ================================
-      if (user.role === "investor") {
-        navigate(location.state?.returnTo || "/project-owner");
-      } else {
-        navigate(location.state?.returnTo || "/student");
-      }
+      finishAuthentication(user);
 
     } catch (error) {
       console.error("Authentication error:", error);
@@ -275,45 +288,21 @@ export default function LoginPage() {
             </div>
           )}
 
+          {isSignUp && (
+            <p className="mb-4 border-2 border-black bg-[#f3f2ee] px-3 py-2 text-xs">
+              New ProjeX accounts use verified Google Sign-In. Choose your account type, then continue with Google.
+            </p>
+          )}
+
+          <div ref={googleButtonRef} className="mb-5 flex min-h-[44px] justify-center" />
+
           {/* FORM */}
 
           <form onSubmit={handleSubmit}>
-
-            {/* NAME */}
-
-            {isSignUp && (
-              <div className="mb-4">
-
-                <label className="block text-xs font-bold mb-1.5">
-                  FULL NAME
-                </label>
-
-                <input
-                  type="text"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleChange}
-                  placeholder="e.g. Alex Rivera"
-                  className="
-                    w-full
-                    h-[48px]
-                    border-2
-                    border-black
-                    bg-[#f3f2ee]
-                    px-3
-                    text-sm
-                    outline-none
-                    placeholder:text-[#9aa5b5]
-                    focus:bg-white
-                  "
-                />
-
-              </div>
-            )}
-
-            {/* EMAIL */}
-
-            <div className="mb-4">
+            {!isSignUp && (
+              <>
+                {/* EMAIL */}
+                <div className="mb-4">
 
               <label className="block text-xs font-bold mb-1.5">
                 EMAIL
@@ -339,15 +328,13 @@ export default function LoginPage() {
                 "
               />
 
-            </div>
+                </div>
 
-            {/* PASSWORD */}
-
-            <div className="mb-4">
-
-              <label className="block text-xs font-bold mb-1.5">
-                PASSWORD
-              </label>
+                {/* PASSWORD */}
+                <div className="mb-4">
+                  <label className="block text-xs font-bold mb-1.5">
+                    PASSWORD
+                  </label>
 
               <input
                 type="password"
@@ -369,7 +356,9 @@ export default function LoginPage() {
                 "
               />
 
-            </div>
+                </div>
+              </>
+            )}
 
             {/* ERROR */}
 
@@ -379,12 +368,11 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* SUBMIT */}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="
+            {!isSignUp && (
+              <button
+                type="submit"
+                disabled={loading}
+                className="
                 w-full
                 h-[48px]
                 bg-black
@@ -397,13 +385,10 @@ export default function LoginPage() {
                 hover:bg-[#222]
                 disabled:opacity-50
               "
-            >
-              {loading
-                ? "PROCESSING..."
-                : isSignUp
-                ? "SIGN UP →"
-                : "LOGIN →"}
-            </button>
+              >
+                {loading ? "PROCESSING..." : "LOGIN →"}
+              </button>
+            )}
 
           </form>
 

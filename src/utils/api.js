@@ -133,6 +133,25 @@ export async function signupUser(userData) {
   }
 }
 
+export async function loginWithGoogle(credential, role) {
+  const response = await apiRequest("/api/auth/google", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ credential, role }),
+  });
+
+  const { data } = await parseApiResponse(response);
+  if (!response.ok || !data.success || !data.token) {
+    throw new Error(data.error || "Google authentication failed.");
+  }
+
+  saveAuthSession(data.user, data.token);
+  window.dispatchEvent(new Event("projex-auth-change"));
+  return data.user;
+}
+
 
 // ==========================================
 // 3. COMPLETE PROFILE
@@ -367,6 +386,63 @@ export async function reviewChallengeSubmission(id, review) {
     throw new Error(data.error || "Could not review submission.");
   }
   return data;
+}
+
+export async function getOwnerPayments() {
+  const response = await apiRequest("/api/owner/payments");
+  const { data } = await parseApiResponse(response);
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not load owner payments.");
+  }
+  return data.payments;
+}
+
+export async function recordOwnerPayment(payment) {
+  const response = await apiRequest("/api/owner/payments", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payment),
+  });
+  const { data } = await parseApiResponse(response);
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not record payment.");
+  }
+  return data.payment;
+}
+
+export async function getStudentPayments() {
+  const response = await apiRequest("/api/student/payments");
+  const { data } = await parseApiResponse(response);
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not load payments.");
+  }
+  return data.payments;
+}
+
+export async function confirmStudentPayment(id) {
+  const response = await apiRequest(`/api/student/payments/${encodeURIComponent(id)}/confirm`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  const { data } = await parseApiResponse(response);
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not confirm payment.");
+  }
+  return data.payment;
+}
+
+export async function disputeStudentPayment(id, reason) {
+  const response = await apiRequest(`/api/student/payments/${encodeURIComponent(id)}/dispute`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+  const { data } = await parseApiResponse(response);
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not dispute payment.");
+  }
+  return data.payment;
 }
 
 // =====================================================

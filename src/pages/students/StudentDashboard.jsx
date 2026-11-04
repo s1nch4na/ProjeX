@@ -9,6 +9,7 @@ import ProjectApplicationModal from "../../components/ProjectApplicationModal";
 import StudentChallenges from "./StudentChallenges";
 import StudentChat from "./StudentChat";
 import { apiRequest } from "../../utils/api";
+import PaymentSection from "../../components/PaymentSection";
 
 export default function StudentDashboard() {
   const navigate = useNavigate();
@@ -238,6 +239,8 @@ export default function StudentDashboard() {
 
         </div>
       </div>
+
+      <PaymentSection role="student" />
 
       {/* MARKETPLACE */}
       {activeTab === "projects" && (

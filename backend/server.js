@@ -5,9 +5,11 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import { v2 as cloudinary } from 'cloudinary';
+import { OAuth2Client } from 'google-auth-library';
 
 const app = express();
 const JWT_SECRET = process.env.JWT_SECRET;
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const PROFESSIONAL_CATEGORIES = [
   'Technology',
   'Creative & Design',
@@ -58,6 +60,10 @@ const PROFILE_RETURNING_COLUMNS = `
   interests,
   professional_categories,
   is_profile_complete
+`;
+const AUTH_RETURNING_COLUMNS = `
+  ${PROFILE_RETURNING_COLUMNS},
+  COALESCE(is_admin, false) AS is_admin
 `;
 
 function requireJwtSecret(res) {
@@ -114,7 +120,7 @@ async function requireAuth(req, res, next) {
 
   try {
     const result = await pool.query(
-      'SELECT id, email, role, COALESCE(is_admin, false) AS is_admin FROM users WHERE id = $1',
+      'SELECT id, email, role, google_subject, COALESCE(is_admin, false) AS is_admin FROM users WHERE id = $1',
       [authData.userId]
     );
 
@@ -150,11 +156,35 @@ function requireRole(role) {
 }
 
 function requireAdmin(req, res, next) {
-  if (!req.user?.is_admin) {
+  const allowedEmails = new Set(
+    (process.env.ADMIN_EMAILS || '')
+      .split(',')
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+  if (
+    !req.user?.google_subject ||
+    !req.user?.email ||
+    !allowedEmails.has(req.user.email.trim().toLowerCase())
+  ) {
+    if (req.user?.id) {
+      pool.query(
+        'UPDATE users SET is_admin = false WHERE id = $1 AND is_admin = true',
+        [req.user.id]
+      ).catch((error) => console.error('Admin permission synchronization error:', error));
+    }
     return res.status(403).json({
       success: false,
       error: 'Administrator permission is required.',
     });
+  }
+
+  if (!req.user.is_admin) {
+    pool.query(
+      'UPDATE users SET is_admin = true WHERE id = $1',
+      [req.user.id]
+    ).catch((error) => console.error('Admin permission synchronization error:', error));
   }
 
   return next();
@@ -227,81 +257,117 @@ app.get('/', (req, res) => {
 // =====================================================
 
 app.post('/api/auth/signup', async (req, res) => {
+  return res.status(410).json({
+    success: false,
+    error: 'New accounts must be created with Google Sign-In.',
+  });
+});
+
+// =====================================================
+// GOOGLE SIGN-IN
+// =====================================================
+
+app.post('/api/auth/google', async (req, res) => {
   if (!requireJwtSecret(res)) {
     return;
   }
 
-  const { name, email, password, role } = req.body;
-
-  if (
-    typeof name !== 'string' ||
-    !name.trim() ||
-    typeof email !== 'string' ||
-    !email.trim() ||
-    typeof password !== 'string' ||
-    password.length < 8
-  ) {
+  const { credential, role } = req.body;
+  if (typeof credential !== 'string' || !credential.trim()) {
     return res.status(400).json({
       success: false,
-      error: 'Name, email, and a password of at least 8 characters are required.',
+      error: 'A Google identity credential is required.',
     });
   }
-
   if (role !== undefined && role !== 'student' && role !== 'investor') {
     return res.status(400).json({
       success: false,
       error: 'Account role must be student or investor.',
     });
   }
+  if (!process.env.GOOGLE_CLIENT_ID) {
+    return res.status(503).json({
+      success: false,
+      error: 'Google authentication is not configured.',
+    });
+  }
 
   try {
-    const existingUser = await pool.query(
-      'SELECT * FROM users WHERE email = $1',
-      [email.trim()]
-    );
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+    const googleSubject = payload?.sub;
+    const email = payload?.email?.trim().toLowerCase();
+    const name = payload?.name?.trim() || email?.split('@')[0];
 
-    if (existingUser.rows.length > 0) {
-      return res.status(400).json({
+    if (!googleSubject || !email || payload.email_verified !== true || !name) {
+      return res.status(401).json({
         success: false,
-        error: "Email already registered. Please log in."
+        error: 'The Google account could not be verified.',
       });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const allowedEmails = new Set(
+      (process.env.ADMIN_EMAILS || '')
+        .split(',')
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean)
+    );
+    const isAdmin = allowedEmails.has(email);
 
-    const insertResult = await pool.query(
-      `INSERT INTO users
-       (
-         email,
-         name,
-         role,
-         password_hash,
-         is_profile_complete
-       )
-       VALUES ($1, $2, $3, $4, false)
-       RETURNING *`,
-      [
-        email.trim(),
-        name.trim(),
-        role || 'student',
-        hashedPassword
-      ]
+    let userResult = await pool.query(
+      'SELECT * FROM users WHERE google_subject = $1',
+      [googleSubject]
     );
 
-    const token = createAuthToken(insertResult.rows[0]);
+    if (userResult.rows.length === 0) {
+      userResult = await pool.query(
+        'SELECT * FROM users WHERE LOWER(email) = $1',
+        [email]
+      );
+    }
 
-    res.json({
+    if (userResult.rows.length > 0) {
+      const existingUser = userResult.rows[0];
+      userResult = await pool.query(
+        `UPDATE users
+         SET email = $1,
+             google_subject = $2,
+             is_admin = $3,
+             name = CASE WHEN COALESCE(TRIM(name), '') = '' THEN $4 ELSE name END
+         WHERE id = $5
+         RETURNING ${AUTH_RETURNING_COLUMNS}`,
+        [email, googleSubject, isAdmin, name, existingUser.id]
+      );
+    } else {
+      userResult = await pool.query(
+        `INSERT INTO users
+           (email, name, role, google_subject, is_admin, is_profile_complete)
+         VALUES ($1, $2, $3, $4, $5, false)
+           RETURNING ${AUTH_RETURNING_COLUMNS}`,
+        [email, name, role || 'student', googleSubject, isAdmin]
+      );
+    }
+
+    const user = userResult.rows[0];
+    return res.json({
       success: true,
-      user: insertResult.rows[0],
-      token,
+      user,
+      token: createAuthToken(user),
     });
-
-  } catch (err) {
-    console.error("❌ Signup error:", err);
-
-    res.status(500).json({
+  } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({
+        success: false,
+        error: 'That Google account is already linked to another account.',
+      });
+    }
+    console.error('Google authentication error:', error);
+    return res.status(401).json({
       success: false,
-      error: "Server database error during signup."
+      error: 'Google authentication failed.',
     });
   }
 });
@@ -1063,6 +1129,283 @@ app.put('/api/challenge-submissions/:id', requireAuth, requireRole('student'), a
   }
 });
 
+// =====================================================
+// MANUAL PAYMENT TRACKING
+// =====================================================
+
+const paymentSelect = `
+  pm.id AS payment_id,
+  pm.application_id,
+  pm.project_id,
+  pm.student_id,
+  pm.owner_id,
+  pm.amount,
+  pm.currency,
+  pm.payment_method,
+  pm.transaction_reference,
+  pm.payment_date,
+  pm.status,
+  pm.created_at,
+  pm.updated_at,
+  pm.student_confirmed_at,
+  pm.dispute_reason,
+  p.title AS project_title,
+  student.name AS student_name,
+  student.email AS student_email,
+  owner.name AS owner_name,
+  owner.email AS owner_email
+`;
+
+function validPaymentAmount(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 && amount <= 100000000 && /^\d+(\.\d{1,2})?$/.test(String(value).trim());
+}
+
+function validPaymentMethod(value) {
+  return ['UPI', 'Bank Transfer', 'Other'].includes(value);
+}
+
+async function getOwnedAcceptedApplication(applicationId, ownerId) {
+  const result = await pool.query(
+    `SELECT
+       pa.id AS application_id,
+       pa.project_id,
+       pa.user_email,
+       p.user_id AS owner_id,
+       p.title AS project_title,
+       student.id AS student_id
+     FROM project_applications pa
+     JOIN projects p ON p.id::text = pa.project_id
+     JOIN users student ON LOWER(student.email) = LOWER(pa.user_email)
+     WHERE pa.id = $1
+       AND pa.status = 'Accepted'
+       AND p.user_id = $2`,
+    [applicationId, ownerId]
+  );
+  return result.rows[0] || null;
+}
+
+app.post('/api/owner/payments', requireAuth, requireRole('investor'), async (req, res) => {
+  const applicationId = Number(req.body.application_id);
+  const {
+    amount,
+    payment_method: paymentMethod,
+    transaction_reference: transactionReference,
+    payment_date: paymentDate,
+  } = req.body;
+
+  if (!Number.isSafeInteger(applicationId) || applicationId <= 0) {
+    return res.status(400).json({ success: false, error: 'A valid accepted application is required.' });
+  }
+  if (!validPaymentAmount(amount)) {
+    return res.status(400).json({ success: false, error: 'Amount must be a positive value with up to two decimals.' });
+  }
+  if (!validPaymentMethod(paymentMethod)) {
+    return res.status(400).json({ success: false, error: 'Payment method must be UPI, Bank Transfer, or Other.' });
+  }
+  if (typeof transactionReference !== 'string' || !transactionReference.trim() || transactionReference.trim().length > 160) {
+    return res.status(400).json({ success: false, error: 'A transaction reference of 160 characters or fewer is required.' });
+  }
+  if (!paymentDate || Number.isNaN(new Date(paymentDate).getTime())) {
+    return res.status(400).json({ success: false, error: 'A valid payment date is required.' });
+  }
+
+  try {
+    const application = await getOwnedAcceptedApplication(applicationId, req.user.id);
+    if (!application) {
+      return res.status(404).json({ success: false, error: 'Accepted application not found.' });
+    }
+
+    const result = await pool.query(
+      `WITH inserted AS (
+         INSERT INTO payments
+           (application_id, project_id, student_id, owner_id, amount, currency,
+            payment_method, transaction_reference, payment_date, status)
+         VALUES ($1,$2,$3,$4,$5,'INR',$6,$7,$8,'Awaiting Confirmation')
+         RETURNING *
+       )
+       SELECT ${paymentSelect}
+       FROM inserted pm
+       JOIN projects p ON p.id = pm.project_id
+       JOIN users student ON student.id = pm.student_id
+       JOIN users owner ON owner.id = pm.owner_id`,
+      [
+        application.application_id,
+        Number(application.project_id),
+        application.student_id,
+        req.user.id,
+        Number(amount).toFixed(2),
+        paymentMethod,
+        transactionReference.trim(),
+        paymentDate,
+      ]
+    );
+
+    await pool.query(
+      `INSERT INTO payment_status_history
+       (payment_id, from_status, to_status, changed_by)
+       VALUES ($1, NULL, 'Awaiting Confirmation', $2)`,
+      [result.rows[0].payment_id, req.user.id]
+    );
+
+    return res.status(201).json({ success: true, payment: result.rows[0] });
+  } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({ success: false, error: 'That transaction reference is already recorded.' });
+    }
+    console.error('Record payment error:', error);
+    return res.status(500).json({ success: false, error: 'Could not record payment.' });
+  }
+});
+
+app.get('/api/owner/payments', requireAuth, requireRole('investor'), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT ${paymentSelect}
+       FROM payments pm
+       JOIN projects p ON p.id = pm.project_id AND p.user_id = $1
+       JOIN users student ON student.id = pm.student_id
+       JOIN users owner ON owner.id = pm.owner_id
+       WHERE pm.owner_id = $1
+       ORDER BY pm.created_at DESC, pm.id DESC`,
+      [req.user.id]
+    );
+    return res.json({ success: true, payments: result.rows });
+  } catch (error) {
+    console.error('Get owner payments error:', error);
+    return res.status(500).json({ success: false, error: 'Could not load payments.' });
+  }
+});
+
+app.get('/api/owner/payments/:id', requireAuth, requireRole('investor'), async (req, res) => {
+  const paymentId = Number(req.params.id);
+  try {
+    const result = await pool.query(
+      `SELECT ${paymentSelect}
+       FROM payments pm
+       JOIN projects p ON p.id = pm.project_id AND p.user_id = $1
+       JOIN users student ON student.id = pm.student_id
+       JOIN users owner ON owner.id = pm.owner_id
+       WHERE pm.id = $2 AND pm.owner_id = $1`,
+      [req.user.id, paymentId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Payment not found.' });
+    }
+    return res.json({ success: true, payment: result.rows[0] });
+  } catch (error) {
+    console.error('Get owner payment error:', error);
+    return res.status(500).json({ success: false, error: 'Could not load payment.' });
+  }
+});
+
+app.get('/api/student/payments', requireAuth, requireRole('student'), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT ${paymentSelect}
+       FROM payments pm
+       JOIN projects p ON p.id = pm.project_id
+       JOIN users student ON student.id = pm.student_id AND student.id = $1
+       JOIN users owner ON owner.id = pm.owner_id
+       ORDER BY pm.created_at DESC, pm.id DESC`,
+      [req.user.id]
+    );
+    return res.json({ success: true, payments: result.rows });
+  } catch (error) {
+    console.error('Get student payments error:', error);
+    return res.status(500).json({ success: false, error: 'Could not load payments.' });
+  }
+});
+
+app.get('/api/student/payments/:id', requireAuth, requireRole('student'), async (req, res) => {
+  const paymentId = Number(req.params.id);
+  try {
+    const result = await pool.query(
+      `SELECT ${paymentSelect}
+       FROM payments pm
+       JOIN projects p ON p.id = pm.project_id
+       JOIN users student ON student.id = pm.student_id AND student.id = $1
+       JOIN users owner ON owner.id = pm.owner_id
+       WHERE pm.id = $2`,
+      [req.user.id, paymentId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Payment not found.' });
+    }
+    return res.json({ success: true, payment: result.rows[0] });
+  } catch (error) {
+    console.error('Get student payment error:', error);
+    return res.status(500).json({ success: false, error: 'Could not load payment.' });
+  }
+});
+
+async function changeStudentPaymentStatus(req, res, status) {
+  const paymentId = Number(req.params.id);
+  const disputeReason = typeof req.body?.reason === 'string'
+    ? req.body.reason.trim()
+    : null;
+
+  if (!Number.isSafeInteger(paymentId) || paymentId <= 0) {
+    return res.status(400).json({ success: false, error: 'Invalid payment ID.' });
+  }
+  if (status === 'Disputed' && !disputeReason) {
+    return res.status(400).json({ success: false, error: 'A dispute reason is required.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const current = await client.query(
+      `SELECT id, status
+       FROM payments
+       WHERE id = $1 AND student_id = $2
+       FOR UPDATE`,
+      [paymentId, req.user.id]
+    );
+    if (current.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, error: 'Payment not found.' });
+    }
+    if (current.rows[0].status !== 'Awaiting Confirmation') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, error: 'Only awaiting payments can be updated.' });
+    }
+
+    const result = await client.query(
+      `UPDATE payments
+       SET status = $1,
+           dispute_reason = CASE WHEN $1 = 'Disputed' THEN $2 ELSE dispute_reason END,
+           student_confirmed_at = CASE WHEN $1 = 'Completed' THEN NOW() ELSE student_confirmed_at END,
+           updated_at = NOW()
+       WHERE id = $3
+       RETURNING *`,
+      [status, disputeReason, paymentId]
+    );
+    await client.query(
+      `INSERT INTO payment_status_history
+       (payment_id, from_status, to_status, changed_by)
+       VALUES ($1, $2, $3, $4)`,
+      [paymentId, current.rows[0].status, status, req.user.id]
+    );
+    await client.query('COMMIT');
+    return res.json({ success: true, payment: result.rows[0] });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Student payment status error:', error);
+    return res.status(500).json({ success: false, error: 'Could not update payment status.' });
+  } finally {
+    client.release();
+  }
+}
+
+app.patch('/api/student/payments/:id/confirm', requireAuth, requireRole('student'), (req, res) =>
+  changeStudentPaymentStatus(req, res, 'Completed')
+);
+
+app.patch('/api/student/payments/:id/dispute', requireAuth, requireRole('student'), (req, res) =>
+  changeStudentPaymentStatus(req, res, 'Disputed')
+);
+
 function handleProjectImageUpload(req, res, next) {
   projectImageUpload.single('image')(req, res, (err) => {
     if (!err) return next();
@@ -1804,6 +2147,19 @@ async function startServer() {
   try {
     await pool.query(
       `ALTER TABLE users
+       ADD COLUMN IF NOT EXISTS google_subject TEXT`
+    );
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS users_google_subject_unique
+      ON users (google_subject)
+      WHERE google_subject IS NOT NULL
+    `);
+    await pool.query(
+      `ALTER TABLE users
+       ALTER COLUMN password_hash DROP NOT NULL`
+    );
+    await pool.query(
+      `ALTER TABLE users
        ADD COLUMN IF NOT EXISTS professional_categories TEXT[] NOT NULL DEFAULT '{}'`
     );
     await pool.query(
@@ -1849,6 +2205,37 @@ async function startServer() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         UNIQUE (challenge_id, student_id)
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS payments (
+        id SERIAL PRIMARY KEY,
+        application_id INTEGER NOT NULL REFERENCES project_applications(id) ON DELETE RESTRICT,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+        student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        amount NUMERIC(12,2) NOT NULL CHECK (amount > 0),
+        currency TEXT NOT NULL DEFAULT 'INR' CHECK (currency = 'INR'),
+        payment_method TEXT NOT NULL CHECK (payment_method IN ('UPI', 'Bank Transfer', 'Other')),
+        transaction_reference TEXT NOT NULL,
+        payment_date DATE NOT NULL,
+        status TEXT NOT NULL DEFAULT 'Awaiting Confirmation'
+          CHECK (status IN ('Pending', 'Awaiting Confirmation', 'Completed', 'Disputed')),
+        student_confirmed_at TIMESTAMPTZ,
+        dispute_reason TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (owner_id, transaction_reference)
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS payment_status_history (
+        id SERIAL PRIMARY KEY,
+        payment_id INTEGER NOT NULL REFERENCES payments(id) ON DELETE CASCADE,
+        from_status TEXT,
+        to_status TEXT NOT NULL,
+        changed_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+        changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
     console.log('✅ Profile categories schema ready.');

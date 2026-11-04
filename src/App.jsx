@@ -77,6 +77,23 @@ function AuthenticatedRoute({ children }) {
   return children;
 }
 
+function AdminRoute({ children }) {
+  const token = localStorage.getItem("projex_token");
+  let user = null;
+
+  try {
+    user = JSON.parse(localStorage.getItem("projex_user") || "null");
+  } catch (error) {
+    console.error("Could not read ProJeX admin session:", error);
+  }
+
+  if (!token || !user?.is_admin) {
+    return <Navigate to="/challenges" replace />;
+  }
+
+  return children;
+}
+
 function AppRoutes() {
   const location = useLocation();
   const state = location.state;
@@ -103,9 +120,9 @@ function AppRoutes() {
         <Route
           path="/admin/challenges"
           element={
-            <AuthenticatedRoute>
+            <AdminRoute>
               <AdminChallenges />
-            </AuthenticatedRoute>
+            </AdminRoute>
           }
         />
 

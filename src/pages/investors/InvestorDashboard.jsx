@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { apiRequest } from "../../utils/api";
+import PaymentSection from "../../components/PaymentSection";
 
 export default function InvestorDashboard() {
   const navigate = useNavigate();
@@ -138,6 +139,8 @@ export default function InvestorDashboard() {
             Status: Active Partner
           </span>
         </div>
+
+        <PaymentSection role="owner" />
 
         {/* Discover Talent Section */}
         <div className="mb-14">
