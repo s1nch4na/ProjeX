@@ -1,6 +1,7 @@
 // src/components/ProfileCard.jsx
 import React from "react";
 import { Link } from "react-router-dom";
+import { parseProfileList } from "../utils/profileCategories";
 
 export default function ProfileCard({
   id,
@@ -9,7 +10,9 @@ export default function ProfileCard({
   skills = [],
   image,
   projectCount = 0,
+  professional_categories = [],
 }) {
+  const categories = parseProfileList(professional_categories);
   return (
     <Link
       to={`/creators/${id}`}
@@ -28,7 +31,7 @@ export default function ProfileCard({
 
           <div className="flex justify-between items-start">
             <span className="text-[10px] font-mono uppercase tracking-[0.2em]">
-              Creator
+              {role === "investor" ? "Project Owner" : "Student"}
             </span>
 
             <span className="text-lg">
@@ -79,6 +82,24 @@ export default function ProfileCard({
                 {index < Math.min(skills.length, 4) - 1 && " /"}
               </span>
             ))}
+          </div>
+        )}
+
+        {categories.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {categories.slice(0, 3).map((category) => (
+              <span
+                key={category}
+                className="rounded-full bg-neutral-100 px-2 py-1 text-[9px] text-neutral-600"
+              >
+                {category}
+              </span>
+            ))}
+            {categories.length > 3 && (
+              <span className="px-1 py-1 text-[9px] text-neutral-500">
+                +{categories.length - 3}
+              </span>
+            )}
           </div>
         )}
 

@@ -8,6 +8,57 @@ import { v2 as cloudinary } from 'cloudinary';
 
 const app = express();
 const JWT_SECRET = process.env.JWT_SECRET;
+const PROFESSIONAL_CATEGORIES = [
+  'Technology',
+  'Creative & Design',
+  'Business',
+  'Marketing',
+  'Data & Analytics',
+  'Writing & Content',
+  'Finance',
+  'Engineering',
+  'Media & Production',
+  'Research',
+];
+
+function normalizeProfessionalCategories(value) {
+  if (!Array.isArray(value)) return [];
+
+  return [...new Set(value)]
+    .filter((category) => typeof category === 'string')
+    .map((category) => category.trim())
+    .filter((category) => PROFESSIONAL_CATEGORIES.includes(category));
+}
+
+function hasInvalidProfessionalCategory(value) {
+  return Array.isArray(value) &&
+    value.some(
+      (category) =>
+        typeof category !== 'string' ||
+        !PROFESSIONAL_CATEGORIES.includes(category.trim())
+    );
+}
+
+const PROFILE_RETURNING_COLUMNS = `
+  id,
+  name,
+  email,
+  role,
+  position,
+  bio,
+  skills,
+  location,
+  github,
+  linkedin,
+  resume_name,
+  avatar_name,
+  phone,
+  organization,
+  website,
+  interests,
+  professional_categories,
+  is_profile_complete
+`;
 
 function requireJwtSecret(res) {
   if (JWT_SECRET) {
@@ -63,7 +114,7 @@ async function requireAuth(req, res, next) {
 
   try {
     const result = await pool.query(
-      'SELECT id, email, role FROM users WHERE id = $1',
+      'SELECT id, email, role, COALESCE(is_admin, false) AS is_admin FROM users WHERE id = $1',
       [authData.userId]
     );
 
@@ -96,6 +147,29 @@ function requireRole(role) {
 
     return next();
   };
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.user?.is_admin) {
+    return res.status(403).json({
+      success: false,
+      error: 'Administrator permission is required.',
+    });
+  }
+
+  return next();
+}
+
+function challengeStatus(challenge) {
+  if (challenge.status === 'Closed') return 'Closed';
+  const now = Date.now();
+  const start = new Date(challenge.start_at).getTime();
+  const deadline = new Date(challenge.deadline_at).getTime();
+
+  if (Number.isNaN(start) || Number.isNaN(deadline)) return 'Draft';
+  if (now < start) return challenge.status === 'Draft' ? 'Draft' : 'Upcoming';
+  if (now <= deadline) return 'Active';
+  return 'Closed';
 }
 
 cloudinary.config({
@@ -320,8 +394,16 @@ app.post('/api/profile/onboard', requireAuth, async (req, res) => {
     phone,
     organization,
     website,
-    interests
+    interests,
+    professional_categories
   } = req.body;
+  if (hasInvalidProfessionalCategory(professional_categories)) {
+    return res.status(400).json({
+      success: false,
+      error: 'One or more professional categories are invalid.',
+    });
+  }
+  const categories = normalizeProfessionalCategories(professional_categories);
 
   try {
     const result = await pool.query(
@@ -340,9 +422,10 @@ app.post('/api/profile/onboard', requireAuth, async (req, res) => {
          organization = $11,
          website = $12,
          interests = $13,
+         professional_categories = $14,
          is_profile_complete = true
-       WHERE email = $14
-       RETURNING *`,
+       WHERE email = $15
+       RETURNING ${PROFILE_RETURNING_COLUMNS}`,
       [
         name,
         position || null,
@@ -357,6 +440,7 @@ app.post('/api/profile/onboard', requireAuth, async (req, res) => {
         organization || null,
         website || null,
         JSON.stringify(interests || []),
+        categories,
         req.user.email
       ]
     );
@@ -412,6 +496,7 @@ app.get('/api/profile/:id', async (req, res) => {
         organization,
         website,
         interests,
+        professional_categories,
         is_profile_complete
        FROM users
        WHERE id = $1`,
@@ -479,8 +564,16 @@ app.put('/api/profile/:id', requireAuth, async (req, res) => {
     phone,
     organization,
     website,
-    interests
+    interests,
+    professional_categories
   } = req.body;
+  if (hasInvalidProfessionalCategory(professional_categories)) {
+    return res.status(400).json({
+      success: false,
+      error: 'One or more professional categories are invalid.',
+    });
+  }
+  const categories = normalizeProfessionalCategories(professional_categories);
 
   console.log(
     "🔥 UPDATE PROFILE REQUEST:",
@@ -501,9 +594,10 @@ app.put('/api/profile/:id', requireAuth, async (req, res) => {
          phone = $8,
          organization = $9,
          website = $10,
-         interests = $11
-       WHERE id = $12
-       RETURNING *`,
+         interests = $11,
+         professional_categories = $12
+       WHERE id = $13
+       RETURNING ${PROFILE_RETURNING_COLUMNS}`,
       [
         name,
         position || null,
@@ -516,6 +610,7 @@ app.put('/api/profile/:id', requireAuth, async (req, res) => {
         organization || null,
         website || null,
         JSON.stringify(interests || []),
+        categories,
         id
       ]
     );
@@ -554,6 +649,419 @@ app.put('/api/profile/:id', requireAuth, async (req, res) => {
 // =====================================================
 // PROJECT CREATION AND LISTING
 // =====================================================
+
+// =====================================================
+// WEEKLY CHALLENGES
+// =====================================================
+
+const challengeSelect = `
+  c.id,
+  c.title,
+  c.summary,
+  c.description,
+  c.category,
+  c.cover_image_url,
+  c.start_at,
+  c.deadline_at,
+  c.status,
+  c.rules,
+  c.submission_requirements,
+  c.created_by,
+  c.created_at,
+  c.updated_at,
+  COUNT(cs.id)::int AS submission_count
+`;
+
+app.get('/api/challenges', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT ${challengeSelect}
+       FROM challenges c
+       LEFT JOIN challenge_submissions cs
+         ON cs.challenge_id = c.id AND cs.is_public = true
+       WHERE c.status <> 'Draft'
+       GROUP BY c.id
+       ORDER BY c.start_at DESC, c.created_at DESC`
+    );
+
+    return res.json({
+      success: true,
+      challenges: result.rows.map((challenge) => ({
+        ...challenge,
+        status: challengeStatus(challenge),
+      })),
+    });
+  } catch (error) {
+    console.error('List challenges error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Could not load challenges.',
+    });
+  }
+});
+
+app.get('/api/challenges/:id', async (req, res) => {
+  const challengeId = Number(req.params.id);
+  if (!Number.isSafeInteger(challengeId) || challengeId <= 0) {
+    return res.status(400).json({ success: false, error: 'Invalid challenge ID.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT ${challengeSelect}
+       FROM challenges c
+       LEFT JOIN challenge_submissions cs
+         ON cs.challenge_id = c.id AND cs.is_public = true
+       WHERE c.id = $1 AND c.status <> 'Draft'
+       GROUP BY c.id`,
+      [challengeId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Challenge not found.' });
+    }
+
+    const challenge = result.rows[0];
+    const submissions = await pool.query(
+      `SELECT
+         cs.id AS submission_id,
+         cs.project_title,
+         cs.description,
+         cs.external_link,
+         cs.repository_link,
+         cs.preview_image_url,
+         cs.is_featured,
+         cs.is_winner,
+         cs.created_at,
+         u.id AS student_id,
+         u.name AS student_name
+       FROM challenge_submissions cs
+       JOIN users u ON u.id = cs.student_id
+       WHERE cs.challenge_id = $1 AND cs.is_public = true
+       ORDER BY cs.is_winner DESC, cs.is_featured DESC, cs.created_at DESC`,
+      [challengeId]
+    );
+
+    return res.json({
+      success: true,
+      challenge: { ...challenge, status: challengeStatus(challenge) },
+      submissions: submissions.rows,
+    });
+
+  } catch (error) {
+    console.error('Get challenge error:', error);
+    return res.status(500).json({ success: false, error: 'Could not load challenge.' });
+  }
+});
+
+app.get('/api/challenges/:id/my-submission', requireAuth, requireRole('student'), async (req, res) => {
+  const challengeId = Number(req.params.id);
+  try {
+    const result = await pool.query(
+      `SELECT * FROM challenge_submissions
+       WHERE challenge_id=$1 AND student_id=$2`,
+      [challengeId, req.user.id]
+    );
+    return res.json({ success: true, submission: result.rows[0] || null });
+  } catch (error) {
+    console.error('Get own challenge submission error:', error);
+    return res.status(500).json({ success: false, error: 'Could not load your submission.' });
+  }
+});
+
+app.get('/api/admin/challenges', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT ${challengeSelect}
+       FROM challenges c
+       LEFT JOIN challenge_submissions cs ON cs.challenge_id = c.id
+       GROUP BY c.id
+       ORDER BY c.created_at DESC`
+    );
+    return res.json({
+      success: true,
+      challenges: result.rows.map((challenge) => ({
+        ...challenge,
+        status: challengeStatus(challenge),
+      })),
+    });
+  } catch (error) {
+    console.error('Admin challenge list error:', error);
+    return res.status(500).json({ success: false, error: 'Could not load admin challenges.' });
+  }
+});
+
+app.post('/api/admin/challenges', requireAuth, requireAdmin, async (req, res) => {
+  const {
+    title,
+    summary,
+    description,
+    category,
+    cover_image_url,
+    start_at,
+    deadline_at,
+    status = 'Draft',
+    rules,
+    submission_requirements,
+  } = req.body;
+
+  if (
+    typeof title !== 'string' ||
+    !title.trim() ||
+    typeof description !== 'string' ||
+    !description.trim() ||
+    !start_at ||
+    !deadline_at ||
+    !['Draft', 'Upcoming'].includes(status)
+  ) {
+    return res.status(400).json({
+      success: false,
+      error: 'Title, description, dates, and a valid draft status are required.',
+    });
+  }
+
+  if (new Date(deadline_at) <= new Date(start_at)) {
+    return res.status(400).json({ success: false, error: 'Deadline must be after the start date.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO challenges
+       (title, summary, description, category, cover_image_url, start_at,
+        deadline_at, status, rules, submission_requirements, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       RETURNING *`,
+      [
+        title.trim(),
+        summary?.trim() || null,
+        description.trim(),
+        category?.trim() || null,
+        cover_image_url?.trim() || null,
+        start_at,
+        deadline_at,
+        status,
+        rules?.trim() || null,
+        submission_requirements?.trim() || null,
+        req.user.id,
+      ]
+    );
+    return res.status(201).json({ success: true, challenge: result.rows[0] });
+  } catch (error) {
+    console.error('Create challenge error:', error);
+    return res.status(500).json({ success: false, error: 'Could not create challenge.' });
+  }
+});
+
+app.put('/api/admin/challenges/:id', requireAuth, requireAdmin, async (req, res) => {
+  const challengeId = Number(req.params.id);
+  const {
+    title,
+    summary,
+    description,
+    category,
+    cover_image_url,
+    start_at,
+    deadline_at,
+    status,
+    rules,
+    submission_requirements,
+  } = req.body;
+
+  if (!Number.isSafeInteger(challengeId) || challengeId <= 0) {
+    return res.status(400).json({ success: false, error: 'Invalid challenge ID.' });
+  }
+  if (!['Draft', 'Upcoming'].includes(status)) {
+    return res.status(400).json({ success: false, error: 'Only draft or upcoming status can be edited.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE challenges
+       SET title=$1, summary=$2, description=$3, category=$4, cover_image_url=$5,
+           start_at=$6, deadline_at=$7, status=$8, rules=$9,
+           submission_requirements=$10, updated_at=NOW()
+       WHERE id=$11
+       RETURNING *`,
+      [
+        title?.trim(),
+        summary?.trim() || null,
+        description?.trim(),
+        category?.trim() || null,
+        cover_image_url?.trim() || null,
+        start_at,
+        deadline_at,
+        status,
+        rules?.trim() || null,
+        submission_requirements?.trim() || null,
+        challengeId,
+      ]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Challenge not found.' });
+    }
+    return res.json({ success: true, challenge: result.rows[0] });
+  } catch (error) {
+    console.error('Update challenge error:', error);
+    return res.status(500).json({ success: false, error: 'Could not update challenge.' });
+  }
+});
+
+app.patch('/api/admin/challenges/:id/status', requireAuth, requireAdmin, async (req, res) => {
+  const challengeId = Number(req.params.id);
+  const { status } = req.body;
+  if (!Number.isSafeInteger(challengeId) || !['Upcoming', 'Closed'].includes(status)) {
+    return res.status(400).json({ success: false, error: 'Invalid challenge status.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE challenges SET status=$1, updated_at=NOW()
+       WHERE id=$2 RETURNING *`,
+      [status, challengeId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Challenge not found.' });
+    }
+    return res.json({ success: true, challenge: result.rows[0] });
+  } catch (error) {
+    console.error('Update challenge status error:', error);
+    return res.status(500).json({ success: false, error: 'Could not update challenge status.' });
+  }
+});
+
+app.get('/api/admin/challenges/:id/submissions', requireAuth, requireAdmin, async (req, res) => {
+  const challengeId = Number(req.params.id);
+  try {
+    const result = await pool.query(
+      `SELECT cs.*, u.name AS student_name, u.email AS student_email
+       FROM challenge_submissions cs
+       JOIN users u ON u.id = cs.student_id
+       WHERE cs.challenge_id=$1
+       ORDER BY cs.created_at DESC`,
+      [challengeId]
+    );
+    return res.json({ success: true, submissions: result.rows });
+  } catch (error) {
+    console.error('Admin submissions error:', error);
+    return res.status(500).json({ success: false, error: 'Could not load submissions.' });
+  }
+});
+
+app.patch('/api/admin/challenge-submissions/:id', requireAuth, requireAdmin, async (req, res) => {
+  const submissionId = Number(req.params.id);
+  const { is_featured, is_winner, is_public, admin_note } = req.body;
+  if (!Number.isSafeInteger(submissionId)) {
+    return res.status(400).json({ success: false, error: 'Invalid submission ID.' });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE challenge_submissions
+       SET is_featured=COALESCE($1,is_featured),
+           is_winner=COALESCE($2,is_winner),
+           is_public=COALESCE($3,is_public),
+           admin_note=COALESCE($4,admin_note),
+           reviewed_by=$5, reviewed_at=NOW(), updated_at=NOW()
+       WHERE id=$6
+       RETURNING *`,
+      [
+        typeof is_featured === 'boolean' ? is_featured : null,
+        typeof is_winner === 'boolean' ? is_winner : null,
+        typeof is_public === 'boolean' ? is_public : null,
+        typeof admin_note === 'string' ? admin_note.trim() : null,
+        req.user.id,
+        submissionId,
+      ]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Submission not found.' });
+    }
+    return res.json({ success: true, submission: result.rows[0] });
+  } catch (error) {
+    console.error('Review submission error:', error);
+    return res.status(500).json({ success: false, error: 'Could not review submission.' });
+  }
+});
+
+app.post('/api/challenges/:id/submissions', requireAuth, requireRole('student'), async (req, res) => {
+  const challengeId = Number(req.params.id);
+  const { project_title, description, external_link, repository_link, preview_image_url } = req.body;
+
+  if (!Number.isSafeInteger(challengeId) || !project_title?.trim() || !description?.trim()) {
+    return res.status(400).json({ success: false, error: 'Project title and description are required.' });
+  }
+
+  try {
+    const challengeResult = await pool.query(
+      `SELECT id, status, start_at, deadline_at FROM challenges WHERE id=$1`,
+      [challengeId]
+    );
+    if (challengeResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Challenge not found.' });
+    }
+    const challenge = challengeResult.rows[0];
+    const status = challengeStatus(challenge);
+    if (status !== 'Active') {
+      return res.status(400).json({ success: false, error: 'Submissions are not currently open.' });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO challenge_submissions
+       (challenge_id, student_id, project_title, description, external_link,
+        repository_link, preview_image_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING *`,
+      [
+        challengeId,
+        req.user.id,
+        project_title.trim(),
+        description.trim(),
+        external_link?.trim() || null,
+        repository_link?.trim() || null,
+        preview_image_url?.trim() || null,
+      ]
+    );
+    return res.status(201).json({ success: true, submission: result.rows[0] });
+  } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({ success: false, error: 'You already submitted to this challenge.' });
+    }
+    console.error('Create challenge submission error:', error);
+    return res.status(500).json({ success: false, error: 'Could not submit work.' });
+  }
+});
+
+app.put('/api/challenge-submissions/:id', requireAuth, requireRole('student'), async (req, res) => {
+  const submissionId = Number(req.params.id);
+  const { project_title, description, external_link, repository_link, preview_image_url } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE challenge_submissions cs
+       SET project_title=$1, description=$2, external_link=$3,
+           repository_link=$4, preview_image_url=$5, updated_at=NOW()
+       FROM challenges c
+       WHERE cs.id=$6 AND cs.challenge_id=c.id AND cs.student_id=$7
+         AND c.status <> 'Closed' AND NOW() <= c.deadline_at
+       RETURNING cs.*`,
+      [
+        project_title?.trim(),
+        description?.trim(),
+        external_link?.trim() || null,
+        repository_link?.trim() || null,
+        preview_image_url?.trim() || null,
+        submissionId,
+        req.user.id,
+      ]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Submission not found or editing is closed.' });
+    }
+    return res.json({ success: true, submission: result.rows[0] });
+  } catch (error) {
+    console.error('Update challenge submission error:', error);
+    return res.status(500).json({ success: false, error: 'Could not update submission.' });
+  }
+});
 
 function handleProjectImageUpload(req, res, next) {
   projectImageUpload.single('image')(req, res, (err) => {
@@ -1292,8 +1800,67 @@ app.post('/api/messages', requireAuth, async (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-  console.log(
-    `🚀 ProjeX server running on port ${PORT}`
-  );
-});
+async function startServer() {
+  try {
+    await pool.query(
+      `ALTER TABLE users
+       ADD COLUMN IF NOT EXISTS professional_categories TEXT[] NOT NULL DEFAULT '{}'`
+    );
+    await pool.query(
+      `ALTER TABLE users
+       ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false`
+    );
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS challenges (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        summary TEXT,
+        description TEXT NOT NULL,
+        category TEXT,
+        cover_image_url TEXT,
+        start_at TIMESTAMPTZ NOT NULL,
+        deadline_at TIMESTAMPTZ NOT NULL,
+        status TEXT NOT NULL DEFAULT 'Draft'
+          CHECK (status IN ('Draft', 'Upcoming', 'Closed')),
+        rules TEXT,
+        submission_requirements TEXT,
+        created_by INTEGER NOT NULL REFERENCES users(id),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CHECK (deadline_at > start_at)
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS challenge_submissions (
+        id SERIAL PRIMARY KEY,
+        challenge_id INTEGER NOT NULL REFERENCES challenges(id) ON DELETE CASCADE,
+        student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        project_title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        external_link TEXT,
+        repository_link TEXT,
+        preview_image_url TEXT,
+        is_public BOOLEAN NOT NULL DEFAULT true,
+        is_featured BOOLEAN NOT NULL DEFAULT false,
+        is_winner BOOLEAN NOT NULL DEFAULT false,
+        admin_note TEXT,
+        reviewed_by INTEGER REFERENCES users(id),
+        reviewed_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (challenge_id, student_id)
+      )
+    `);
+    console.log('✅ Profile categories schema ready.');
+  } catch (error) {
+    console.error('❌ Could not prepare profile categories schema:', error);
+  }
+
+  app.listen(PORT, () => {
+    console.log(
+      `🚀 ProjeX server running on port ${PORT}`
+    );
+  });
+}
+
+startServer();

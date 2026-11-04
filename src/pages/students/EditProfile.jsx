@@ -1,575 +1,370 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { updateProfile } from "../../utils/api";
+import ProfessionalCategoryChips from "../../components/ProfessionalCategoryChips";
+import { getProfile, updateProfile } from "../../utils/api";
+import { parseProfileList } from "../../utils/profileCategories";
+
+const emptyForm = {
+  name: "",
+  position: "",
+  bio: "",
+  location: "",
+  github: "",
+  linkedin: "",
+  skills: [],
+  phone: "",
+  organization: "",
+  website: "",
+  interests: [],
+  professional_categories: [],
+  resume_name: "",
+  avatar_name: "",
+};
+
+function Field({ label, children, className = "" }) {
+  return (
+    <label className={`block ${className}`}>
+      <span className="mb-2 block text-xs font-medium uppercase tracking-[0.16em] text-neutral-500">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+const inputClass =
+  "w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-black focus:ring-2 focus:ring-black/10";
 
 export default function EditProfile() {
   const navigate = useNavigate();
-
   const [user, setUser] = useState(null);
-  const [saving, setSaving] = useState(false);
-
-  const [form, setForm] = useState({
-    name: "",
-    position: "",
-    bio: "",
-    location: "",
-    github: "",
-    linkedin: "",
-    skills: [],
-    phone: "",
-    organization: "",
-    website: "",
-    interests: []
-  });
-
+  const [form, setForm] = useState(emptyForm);
   const [skillInput, setSkillInput] = useState("");
-
-  // ==========================================
-  // LOAD CURRENT USER
-  // ==========================================
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState({ type: "", message: "" });
 
   useEffect(() => {
-    try {
-      const savedUser = localStorage.getItem("projex_user");
+    let cancelled = false;
 
-      if (!savedUser) {
+    async function loadProfile() {
+      let savedUser;
+      try {
+        savedUser = JSON.parse(localStorage.getItem("projex_user") || "null");
+      } catch {
+        savedUser = null;
+      }
+
+      if (!savedUser?.id) {
         navigate("/login");
         return;
       }
 
-      const parsedUser = JSON.parse(savedUser);
-
-      setUser(parsedUser);
-
-      let parsedSkills = [];
-
       try {
-        if (Array.isArray(parsedUser.skills)) {
-          parsedSkills = parsedUser.skills;
-        } else if (typeof parsedUser.skills === "string") {
-          parsedSkills = JSON.parse(parsedUser.skills);
+        const result = await getProfile(savedUser.id);
+        if (!result?.success || !result.user) {
+          throw new Error(result?.error || "Could not load your profile.");
         }
-      } catch {
-        parsedSkills = [];
-      }
 
-      let parsedInterests = [];
-
-      try {
-        if (Array.isArray(parsedUser.interests)) {
-          parsedInterests = parsedUser.interests;
-        } else if (typeof parsedUser.interests === "string") {
-          parsedInterests = JSON.parse(parsedUser.interests);
+        if (!cancelled) {
+          const profile = result.user;
+          setUser(profile);
+          setForm({
+            ...emptyForm,
+            ...profile,
+            skills: parseProfileList(profile.skills),
+            interests: parseProfileList(profile.interests),
+            professional_categories: parseProfileList(
+              profile.professional_categories
+            ),
+          });
         }
-      } catch {
-        parsedInterests = [];
+      } catch (error) {
+        if (!cancelled) {
+          setFeedback({
+            type: "error",
+            message: error.message || "Could not load your profile.",
+          });
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-
-      setForm({
-        name: parsedUser.name || "",
-        position: parsedUser.position || "",
-        bio: parsedUser.bio || "",
-        location: parsedUser.location || "",
-        github: parsedUser.github || "",
-        linkedin: parsedUser.linkedin || "",
-        skills: parsedSkills,
-        phone: parsedUser.phone || "",
-        organization: parsedUser.organization || "",
-        website: parsedUser.website || "",
-        interests: parsedInterests
-      });
-
-    } catch (error) {
-      console.error("Could not load user:", error);
-      navigate("/login");
     }
+
+    loadProfile();
+    return () => {
+      cancelled = true;
+    };
   }, [navigate]);
 
-  // ==========================================
-  // HANDLE INPUT
-  // ==========================================
+  const isProjectOwner = user?.role === "investor";
+  const completion = useMemo(() => {
+    const fields = isProjectOwner
+      ? [form.name, form.position, form.organization, form.bio, form.location]
+      : [form.name, form.position, form.bio, form.location, form.skills.length];
+    return Math.round((fields.filter(Boolean).length / fields.length) * 100);
+  }, [form, isProjectOwner]);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-
-    setForm((prev) => ({
-      ...prev,
-      [name]: value
-    }));
+  const updateField = (event) => {
+    const { name, value } = event.target;
+    setForm((current) => ({ ...current, [name]: value }));
+    setFeedback({ type: "", message: "" });
   };
 
-  // ==========================================
-  // ADD SKILL
-  // ==========================================
-
-  const addSkill = (e) => {
-    e.preventDefault();
-
+  const addSkill = (event) => {
+    event.preventDefault();
     const skill = skillInput.trim();
-
-    if (!skill) return;
-
-    if (form.skills.includes(skill)) {
+    if (!skill || form.skills.includes(skill)) {
       setSkillInput("");
       return;
     }
-
-    setForm((prev) => ({
-      ...prev,
-      skills: [...prev.skills, skill]
-    }));
-
+    setForm((current) => ({ ...current, skills: [...current.skills, skill] }));
     setSkillInput("");
   };
 
-  // ==========================================
-  // REMOVE SKILL
-  // ==========================================
-
-  const removeSkill = (skillToRemove) => {
-    setForm((prev) => ({
-      ...prev,
-      skills: prev.skills.filter(
-        (skill) => skill !== skillToRemove
-      )
-    }));
-  };
-
-  // ==========================================
-  // SAVE PROFILE
-  // ==========================================
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    if (!user?.id) {
-      alert("User information is missing.");
-      return;
-    }
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (!user?.id) return;
 
     setSaving(true);
+    setFeedback({ type: "", message: "" });
 
     try {
-      const result = await updateProfile(
-        user.id,
-        form
-      );
+      const result = await updateProfile(user.id, {
+        name: form.name.trim(),
+        position: form.position.trim(),
+        bio: form.bio.trim(),
+        location: form.location.trim(),
+        github: isProjectOwner ? null : form.github.trim(),
+        linkedin: form.linkedin.trim(),
+        skills: isProjectOwner ? [] : form.skills,
+        phone: isProjectOwner ? form.phone.trim() : null,
+        organization: isProjectOwner ? form.organization.trim() : null,
+        website: isProjectOwner ? form.website.trim() : null,
+        interests: isProjectOwner ? form.interests : [],
+        professional_categories: form.professional_categories,
+      });
 
       if (!result?.success) {
-        throw new Error(
-          result?.error || "Failed to update profile."
-        );
+        throw new Error(result?.error || "Could not save your profile.");
       }
 
-      alert("Profile updated successfully!");
-
-      navigate(`/creators/${user.id}`);
-
+      setUser(result.user);
+      setFeedback({ type: "success", message: "Profile saved successfully." });
     } catch (error) {
-      console.error("Profile update error:", error);
-
-      alert(
-        error.message ||
-        "Something went wrong while updating your profile."
-      );
+      setFeedback({
+        type: "error",
+        message: error.message || "Could not save your profile.",
+      });
     } finally {
       setSaving(false);
     }
   };
 
-  // ==========================================
-  // LOADING
-  // ==========================================
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#F3F3EF]">
+        <p className="text-xs uppercase tracking-[0.2em] text-neutral-500">
+          Loading profile editor...
+        </p>
+      </div>
+    );
+  }
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-[#F3F3EF] flex items-center justify-center">
-        <p className="font-mono text-xs uppercase tracking-widest text-neutral-500">
-          Loading...
+      <div className="flex min-h-screen items-center justify-center bg-[#F3F3EF] px-6">
+        <p role="alert" className="text-sm text-red-700">
+          {feedback.message || "Profile unavailable."}
         </p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#F3F3EF] text-black">
+    <div className="min-h-screen bg-[#F3F3EF] text-[#111]">
+      <header className="border-b border-neutral-200 bg-white">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5 md:px-10">
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="text-xs uppercase tracking-[0.16em] text-neutral-500 hover:text-black"
+          >
+            ← Back
+          </button>
+          <span className="text-sm font-semibold tracking-[0.2em]">PROJEX</span>
+          <span className="hidden text-xs uppercase tracking-[0.16em] text-neutral-400 sm:block">
+            Profile editor
+          </span>
+        </div>
+      </header>
 
-      {/* HEADER */}
-      <div className="border-b border-black px-6 md:px-12 py-6 flex items-center justify-between">
-
-        <button
-          onClick={() => navigate(-1)}
-          className="font-mono text-xs uppercase tracking-widest hover:underline"
-        >
-          ← Back
-        </button>
-
-        <h1 className="font-black text-xl tracking-tight">
-          EDIT PROFILE
-        </h1>
-
-        <div className="w-10" />
-
-      </div>
-
-      {/* CONTENT */}
-      <main className="px-6 md:px-12 py-12 max-w-5xl mx-auto">
-
-        <div className="mb-12">
-
-          <p className="font-mono text-xs uppercase tracking-widest text-neutral-500">
-            Profile Settings
+      <main className="mx-auto max-w-6xl px-6 py-10 md:px-10 md:py-16">
+        <div className="mb-10 max-w-3xl">
+          <p className="mb-3 text-xs uppercase tracking-[0.2em] text-neutral-500">
+            Your professional identity
           </p>
-
-          <h2 className="text-4xl md:text-5xl font-black mt-2">
-            Make your profile yours.
-          </h2>
-
-          <p className="mt-4 text-neutral-600 max-w-2xl">
-            Update the information people see when they visit your
-            ProJeX creator profile.
+          <h1 className="text-4xl font-semibold tracking-tight md:text-6xl">
+            Shape the profile people remember.
+          </h1>
+          <p className="mt-4 text-base leading-7 text-neutral-600">
+            Keep your information clear, current, and useful to the people you
+            want to work with.
           </p>
-
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="space-y-10"
-        >
-
-          {/* BASIC INFORMATION */}
-          <section className="border-t border-black pt-8">
-
-            <div className="grid md:grid-cols-3 gap-8">
-
-              <div>
-                <p className="font-mono text-xs uppercase tracking-widest text-neutral-500">
-                  01 / Identity
-                </p>
-
-                <h3 className="text-xl font-bold mt-2">
-                  Basic information
-                </h3>
-              </div>
-
-              <div className="md:col-span-2 space-y-6">
-
-                {/* NAME */}
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <section className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm md:p-8">
+            <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-center gap-5">
+                <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-black text-2xl font-semibold text-white">
+                  {form.name?.charAt(0)?.toUpperCase() || "U"}
+                </div>
                 <div>
-
-                  <label className="block text-xs font-mono uppercase tracking-widest mb-2">
-                    Name
-                  </label>
-
-                  <input
-                    type="text"
-                    name="name"
-                    value={form.name}
-                    onChange={handleChange}
-                    className="w-full border border-black bg-white px-4 py-3 focus:outline-none"
-                    required
-                  />
-
-                </div>
-
-                {/* PROFESSIONAL POSITION */}
-                <div>
-
-                  <label className="block text-xs font-mono uppercase tracking-widest mb-2">
-                    Professional position
-                  </label>
-
-                  <input
-                    type="text"
-                    name="position"
-                    value={form.position}
-                    onChange={handleChange}
-                    placeholder="e.g. Full Stack Developer or Founder"
-                    className="w-full border border-black bg-white px-4 py-3 focus:outline-none"
-                  />
-
-                </div>
-
-                {/* LOCATION */}
-                <div>
-
-                  <label className="block text-xs font-mono uppercase tracking-widest mb-2">
-                    Location
-                  </label>
-
-                  <input
-                    type="text"
-                    name="location"
-                    value={form.location}
-                    onChange={handleChange}
-                    placeholder="e.g. Bengaluru, India"
-                    className="w-full border border-black bg-white px-4 py-3 focus:outline-none"
-                  />
-
-                </div>
-
-                {user.role === "investor" && (
-                  <>
-                    <div>
-                      <label className="block text-xs font-mono uppercase tracking-widest mb-2">
-                        Organization
-                      </label>
-                      <input
-                        type="text"
-                        name="organization"
-                        value={form.organization}
-                        onChange={handleChange}
-                        className="w-full border border-black bg-white px-4 py-3 focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-mono uppercase tracking-widest mb-2">
-                        Phone
-                      </label>
-                      <input
-                        type="text"
-                        name="phone"
-                        value={form.phone}
-                        onChange={handleChange}
-                        className="w-full border border-black bg-white px-4 py-3 focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-mono uppercase tracking-widest mb-2">
-                        Website
-                      </label>
-                      <input
-                        type="text"
-                        name="website"
-                        value={form.website}
-                        onChange={handleChange}
-                        className="w-full border border-black bg-white px-4 py-3 focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-mono uppercase tracking-widest mb-2">
-                        Interests
-                      </label>
-                      <input
-                        type="text"
-                        value={form.interests.join(", ")}
-                        onChange={(e) =>
-                          setForm((prev) => ({
-                            ...prev,
-                            interests: e.target.value
-                              .split(",")
-                              .map((interest) => interest.trim())
-                              .filter(Boolean),
-                          }))
-                        }
-                        placeholder="e.g. SaaS, education, fintech"
-                        className="w-full border border-black bg-white px-4 py-3 focus:outline-none"
-                      />
-                    </div>
-                  </>
-                )}
-
-              </div>
-
-            </div>
-
-          </section>
-
-          {/* ABOUT */}
-          <section className="border-t border-black pt-8">
-
-            <div className="grid md:grid-cols-3 gap-8">
-
-              <div>
-                <p className="font-mono text-xs uppercase tracking-widest text-neutral-500">
-                  02 / About
-                </p>
-
-                <h3 className="text-xl font-bold mt-2">
-                  Tell people about yourself
-                </h3>
-              </div>
-
-              <div className="md:col-span-2">
-
-                <textarea
-                  name="bio"
-                  value={form.bio}
-                  onChange={handleChange}
-                  rows={7}
-                  placeholder="Tell people what you do, what you're interested in, and what you're building..."
-                  className="w-full border border-black bg-white px-4 py-3 resize-none focus:outline-none"
-                />
-
-              </div>
-
-            </div>
-
-          </section>
-
-          {/* SKILLS */}
-          <section className="border-t border-black pt-8">
-
-            <div className="grid md:grid-cols-3 gap-8">
-
-              <div>
-
-                <p className="font-mono text-xs uppercase tracking-widest text-neutral-500">
-                  03 / Skills
-                </p>
-
-                <h3 className="text-xl font-bold mt-2">
-                  What do you work with?
-                </h3>
-
-              </div>
-
-              <div className="md:col-span-2">
-
-                <div className="flex gap-2">
-
-                  <input
-                    type="text"
-                    value={skillInput}
-                    onChange={(e) =>
-                      setSkillInput(e.target.value)
-                    }
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        addSkill(e);
-                      }
-                    }}
-                    placeholder="Add a skill..."
-                    className="flex-1 border border-black bg-white px-4 py-3 focus:outline-none"
-                  />
-
-                  <button
-                    type="button"
-                    onClick={addSkill}
-                    className="px-5 border-2 border-black bg-black text-white text-xs font-mono uppercase tracking-widest hover:bg-neutral-800"
-                  >
-                    Add
-                  </button>
-
-                </div>
-
-                <div className="flex flex-wrap gap-3 mt-5">
-
-                  {form.skills.length > 0 ? (
-                    form.skills.map((skill, index) => (
-                      <button
-                        type="button"
-                        key={index}
-                        onClick={() => removeSkill(skill)}
-                        className="px-4 py-2 border border-black bg-white text-xs font-mono uppercase tracking-wider hover:bg-black hover:text-white"
-                        title="Remove skill"
-                      >
-                        {skill} ×
-                      </button>
-                    ))
-                  ) : (
-                    <p className="text-sm text-neutral-500">
-                      No skills added yet.
+                  <p className="text-xl font-semibold">{form.name || "Your name"}</p>
+                  <p className="mt-1 text-sm text-neutral-500">
+                    {isProjectOwner ? "Project Owner" : "Student"}
+                  </p>
+                  {form.avatar_name && (
+                    <p className="mt-2 text-xs text-neutral-400">
+                      Avatar: {form.avatar_name}
                     </p>
                   )}
-
                 </div>
-
               </div>
-
+              <div className="min-w-[220px]">
+                <div className="mb-2 flex justify-between text-xs uppercase tracking-[0.14em] text-neutral-500">
+                  <span>Profile completion</span>
+                  <span>{completion}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-neutral-100">
+                  <div
+                    className="h-2 rounded-full bg-black transition-all"
+                    style={{ width: `${completion}%` }}
+                  />
+                </div>
+              </div>
             </div>
-
           </section>
 
-          {/* LINKS */}
-          <section className="border-t border-black pt-8">
+          <section className="grid gap-8 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm md:grid-cols-[0.7fr_1.3fr] md:p-8">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-neutral-500">
+                01 / Personal
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold">The essentials</h2>
+              <p className="mt-3 text-sm leading-6 text-neutral-500">
+                Make it easy for the right people to understand who you are.
+              </p>
+            </div>
+            <div className="grid gap-5">
+              <Field label="Full name">
+                <input className={inputClass} name="name" value={form.name} onChange={updateField} required />
+              </Field>
+              <Field label={isProjectOwner ? "Designation" : "Professional headline"}>
+                <input className={inputClass} name="position" value={form.position} onChange={updateField} placeholder={isProjectOwner ? "Founder, Product Lead..." : "Full-stack developer, designer..."} />
+              </Field>
+              <Field label="Location">
+                <input className={inputClass} name="location" value={form.location} onChange={updateField} placeholder="Bengaluru, India" />
+              </Field>
+              <Field label={isProjectOwner ? "Business description" : "About you"}>
+                <textarea className={`${inputClass} min-h-32 resize-y`} name="bio" value={form.bio} onChange={updateField} placeholder="A concise introduction..." />
+              </Field>
+            </div>
+          </section>
 
-            <div className="grid md:grid-cols-3 gap-8">
+          <section className="grid gap-8 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm md:grid-cols-[0.7fr_1.3fr] md:p-8">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-neutral-500">
+                02 / Professional
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold">Your direction</h2>
+              <p className="mt-3 text-sm leading-6 text-neutral-500">
+                Skills describe what you do. Categories describe the fields you
+                work in or want to explore.
+              </p>
+            </div>
+            <div className="space-y-7">
+              {isProjectOwner && (
+                <>
+                  <Field label="Organization / company">
+                    <input className={inputClass} name="organization" value={form.organization} onChange={updateField} />
+                  </Field>
+                  <Field label="Phone">
+                    <input className={inputClass} name="phone" value={form.phone} onChange={updateField} />
+                  </Field>
+                </>
+              )}
+              {!isProjectOwner && (
+                <Field label="Skills">
+                  <div className="flex gap-2">
+                    <input className={inputClass} value={skillInput} onChange={(event) => setSkillInput(event.target.value)} onKeyDown={(event) => event.key === "Enter" && addSkill(event)} placeholder="Add a skill" />
+                    <button type="button" onClick={addSkill} className="rounded-xl bg-black px-5 text-xs uppercase tracking-[0.14em] text-white">Add</button>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {form.skills.map((skill) => (
+                      <button key={skill} type="button" onClick={() => setForm((current) => ({ ...current, skills: current.skills.filter((item) => item !== skill) }))} className="rounded-full bg-neutral-100 px-3 py-2 text-xs hover:bg-black hover:text-white">
+                        {skill} ×
+                      </button>
+                    ))}
+                    {form.skills.length === 0 && <span className="text-sm text-neutral-500">No skills added yet.</span>}
+                  </div>
+                </Field>
+              )}
+              <Field label="Professional categories">
+                <ProfessionalCategoryChips
+                  selected={form.professional_categories}
+                  onChange={(professional_categories) => setForm((current) => ({ ...current, professional_categories }))}
+                />
+              </Field>
+            </div>
+          </section>
 
-              <div>
+          <section className="grid gap-8 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm md:grid-cols-[0.7fr_1.3fr] md:p-8">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-neutral-500">
+                03 / Links
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold">Stay connected</h2>
+            </div>
+            <div className="grid gap-5 sm:grid-cols-2">
+              {!isProjectOwner && (
+                <Field label="GitHub">
+                  <input className={inputClass} name="github" value={form.github} onChange={updateField} placeholder="github.com/username" />
+                </Field>
+              )}
+              <Field label="LinkedIn">
+                <input className={inputClass} name="linkedin" value={form.linkedin} onChange={updateField} placeholder="linkedin.com/in/username" />
+              </Field>
+              {isProjectOwner && (
+                <Field label="Website">
+                  <input className={inputClass} name="website" value={form.website} onChange={updateField} placeholder="yourcompany.com" />
+                </Field>
+              )}
+              {!isProjectOwner && (
+                <Field label="Resume">
+                  <div className="rounded-xl border border-dashed border-neutral-300 px-4 py-3 text-sm text-neutral-500">
+                    {form.resume_name || "No resume uploaded yet."}
+                  </div>
+                </Field>
+              )}
+            </div>
+          </section>
 
-                <p className="font-mono text-xs uppercase tracking-widest text-neutral-500">
-                  04 / Links
+          <div className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between md:p-8">
+            <div aria-live="polite">
+              {feedback.message && (
+                <p className={feedback.type === "error" ? "text-sm text-red-700" : "text-sm text-green-700"}>
+                  {feedback.message}
                 </p>
-
-                <h3 className="text-xl font-bold mt-2">
-                  Your online presence
-                </h3>
-
-              </div>
-
-              <div className="md:col-span-2 space-y-6">
-
-                {/* GITHUB */}
-                <div>
-
-                  <label className="block text-xs font-mono uppercase tracking-widest mb-2">
-                    GitHub
-                  </label>
-
-                  <input
-                    type="text"
-                    name="github"
-                    value={form.github}
-                    onChange={handleChange}
-                    placeholder="https://github.com/username"
-                    className="w-full border border-black bg-white px-4 py-3 focus:outline-none"
-                  />
-
-                </div>
-
-                {/* LINKEDIN */}
-                <div>
-
-                  <label className="block text-xs font-mono uppercase tracking-widest mb-2">
-                    LinkedIn
-                  </label>
-
-                  <input
-                    type="text"
-                    name="linkedin"
-                    value={form.linkedin}
-                    onChange={handleChange}
-                    placeholder="https://linkedin.com/in/username"
-                    className="w-full border border-black bg-white px-4 py-3 focus:outline-none"
-                  />
-
-                </div>
-
-              </div>
-
+              )}
             </div>
-
-          </section>
-
-          {/* SAVE */}
-          <section className="border-t border-black pt-8 flex flex-col sm:flex-row justify-between gap-4">
-
-            <button
-              type="button"
-              onClick={() => navigate(`/creators/${user.id}`)}
-              className="px-6 py-3 border-2 border-black bg-white text-xs font-mono uppercase tracking-widest hover:bg-black hover:text-white transition"
-            >
-              Cancel
+            <button type="submit" disabled={saving} className="rounded-xl bg-black px-7 py-3 text-xs uppercase tracking-[0.16em] text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50">
+              {saving ? "Saving..." : "Save changes →"}
             </button>
-
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-8 py-3 bg-black text-white text-xs font-mono uppercase tracking-widest hover:bg-neutral-800 transition disabled:opacity-50"
-            >
-              {saving ? "Saving..." : "Save Changes →"}
-            </button>
-
-          </section>
-
+          </div>
         </form>
-
       </main>
-
     </div>
   );
 }

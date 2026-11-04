@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { completeProfile } from "../utils/api";
+import ProfessionalCategoryChips from "../components/ProfessionalCategoryChips";
 
 export default function ProfileOnboarding() {
   const navigate = useNavigate();
@@ -40,6 +41,7 @@ export default function ProfileOnboarding() {
 
   const [interests, setInterests] = useState([]);
   const [interestInput, setInterestInput] = useState("");
+  const [professionalCategories, setProfessionalCategories] = useState([]);
 
 
   // =====================================================
@@ -176,7 +178,7 @@ export default function ProfileOnboarding() {
       location: formData.location.trim(),
 
       linkedin: formData.linkedin.trim(),
-
+      professional_categories: professionalCategories,
       avatarName: formData.avatar
         ? formData.avatar.name
         : null,
@@ -576,6 +578,25 @@ export default function ProfileOnboarding() {
 
             </section>
           )}
+
+          <section className="bg-white border-2 border-black p-6 md:p-8 mb-6">
+            <div className="border-b border-black pb-4 mb-6">
+              <span className="text-xs font-mono uppercase tracking-widest text-neutral-500">
+                03 — Professional Categories
+              </span>
+              <h2 className="text-xl font-bold uppercase mt-1">
+                Choose your fields
+              </h2>
+              <p className="text-xs text-neutral-500 mt-2">
+                Select the fields you work in or want to explore. You can
+                change these later.
+              </p>
+            </div>
+            <ProfessionalCategoryChips
+              selected={professionalCategories}
+              onChange={setProfessionalCategories}
+            />
+          </section>
 
 
           {/* =================================================

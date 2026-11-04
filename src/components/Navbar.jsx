@@ -122,6 +122,20 @@ export default function Navbar() {
                   Browse Projects
                 </Link>
               )}
+              <Link
+                to="/challenges"
+                className="text-[10px] font-mono uppercase tracking-wider hover:underline"
+              >
+                Challenges
+              </Link>
+              {user.is_admin && (
+                <Link
+                  to="/admin/challenges"
+                  className="text-[10px] font-mono uppercase tracking-wider hover:underline"
+                >
+                  Manage Challenges
+                </Link>
+              )}
             </div>
 
             {/* GREETING */}

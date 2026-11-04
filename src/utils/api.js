@@ -246,6 +246,129 @@ export async function updateProfile(id, profileData) {
   }
 }
 
+export async function getChallenges() {
+  const response = await apiRequest("/api/challenges");
+  const { data } = await parseApiResponse(response);
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not load challenges.");
+  }
+  return data.challenges;
+}
+
+export async function getChallenge(id) {
+  const response = await apiRequest(`/api/challenges/${encodeURIComponent(id)}`);
+  const { data } = await parseApiResponse(response);
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not load challenge.");
+  }
+  return data;
+}
+
+export async function getMyChallengeSubmission(id) {
+  const response = await apiRequest(`/api/challenges/${encodeURIComponent(id)}/my-submission`);
+  const { data } = await parseApiResponse(response);
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not load your submission.");
+  }
+  return data.submission;
+}
+
+export async function submitChallengeWork(id, submission) {
+  const response = await apiRequest(`/api/challenges/${encodeURIComponent(id)}/submissions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(submission),
+  });
+  const { data } = await parseApiResponse(response);
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not submit work.");
+  }
+  return data;
+}
+
+export async function updateChallengeSubmission(id, submission) {
+  const response = await apiRequest(`/api/challenge-submissions/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(submission),
+  });
+  const { data } = await parseApiResponse(response);
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not update submission.");
+  }
+  return data;
+}
+
+export async function getAdminChallenges() {
+  const response = await apiRequest("/api/admin/challenges");
+  const { data } = await parseApiResponse(response);
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not load admin challenges.");
+  }
+  return data.challenges;
+}
+
+export async function createChallenge(challenge) {
+  const response = await apiRequest("/api/admin/challenges", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(challenge),
+  });
+  const { data } = await parseApiResponse(response);
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not create challenge.");
+  }
+  return data;
+}
+
+export async function editChallenge(id, challenge) {
+  const response = await apiRequest(`/api/admin/challenges/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(challenge),
+  });
+  const { data } = await parseApiResponse(response);
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not edit challenge.");
+  }
+  return data;
+}
+
+export async function updateChallengeStatus(id, status) {
+  const response = await apiRequest(`/api/admin/challenges/${encodeURIComponent(id)}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+  const { data } = await parseApiResponse(response);
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not update challenge status.");
+  }
+  return data;
+}
+
+export async function getAdminSubmissions(id) {
+  const response = await apiRequest(`/api/admin/challenges/${encodeURIComponent(id)}/submissions`);
+  const { data } = await parseApiResponse(response);
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not load submissions.");
+  }
+  return data.submissions;
+}
+
+export async function reviewChallengeSubmission(id, review) {
+  const response = await apiRequest(`/api/admin/challenge-submissions/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(review),
+  });
+  const { data } = await parseApiResponse(response);
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || "Could not review submission.");
+  }
+  return data;
+}
+
 // =====================================================
 // MESSAGING API
 // =====================================================

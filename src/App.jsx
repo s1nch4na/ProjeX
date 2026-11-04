@@ -20,6 +20,8 @@ import EditProfile from "./pages/students/EditProfile";
 import StudentChallenges from "./pages/students/StudentChallenges";
 import ResumeUpload from "./pages/students/ResumeUpload";
 import StudentChat from "./pages/students/StudentChat";
+import ChallengeDetails from "./pages/ChallengeDetails";
+import AdminChallenges from "./pages/admin/AdminChallenges";
 
 import InvestorDashboard from "./pages/investors/InvestorDashboard";
 import TalentProfiles from "./pages/investors/TalentProfiles";
@@ -58,6 +60,23 @@ function RoleRoute({ role, children }) {
   return children;
 }
 
+function AuthenticatedRoute({ children }) {
+  const location = useLocation();
+  const token = localStorage.getItem("projex_token");
+
+  if (!token) {
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ returnTo: location.pathname }}
+      />
+    );
+  }
+
+  return children;
+}
+
 function AppRoutes() {
   const location = useLocation();
   const state = location.state;
@@ -77,6 +96,17 @@ function AppRoutes() {
         <Route
           path="/profile-onboarding"
           element={<ProfileOnboarding />}
+        />
+
+        <Route path="/challenges" element={<StudentChallenges />} />
+        <Route path="/challenges/:id" element={<ChallengeDetails />} />
+        <Route
+          path="/admin/challenges"
+          element={
+            <AuthenticatedRoute>
+              <AdminChallenges />
+            </AuthenticatedRoute>
+          }
         />
 
         {/* STUDENT */}
@@ -101,9 +131,9 @@ function AppRoutes() {
         <Route
           path="/student/profile/edit"
           element={
-            <RoleRoute role="student">
+            <AuthenticatedRoute>
               <EditProfile />
-            </RoleRoute>
+            </AuthenticatedRoute>
           }
         />
 

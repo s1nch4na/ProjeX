@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { getProfile } from "../../utils/api";
+import { parseProfileList } from "../../utils/profileCategories";
 
 function parseList(value) {
   if (Array.isArray(value)) return value;
@@ -98,6 +99,9 @@ export default function StudentProfile() {
     String(currentUser.id) === String(creator.id);
   const skills = parseList(creator.skills);
   const interests = parseList(creator.interests);
+  const professionalCategories = parseProfileList(
+    creator.professional_categories
+  );
   const profileLabel = isProjectOwner ? "Project Owner" : "Student / Creator";
 
   return (
@@ -127,7 +131,11 @@ export default function StudentProfile() {
         <div className="flex flex-col md:flex-row md:items-end gap-6">
           <div className="w-28 h-28 md:w-36 md:h-36 shrink-0 border-2 border-black bg-white overflow-hidden flex items-center justify-center">
             <div className="w-full h-full flex items-center justify-center bg-neutral-200 text-4xl font-bold">
-              {creator.name?.charAt(0)?.toUpperCase() || "U"}
+              {creator.avatar_name ? (
+                <span className="text-sm text-neutral-500">Avatar</span>
+              ) : (
+                creator.name?.charAt(0)?.toUpperCase() || "U"
+              )}
             </div>
           </div>
 
@@ -254,6 +262,25 @@ export default function StudentProfile() {
             )}
 
             <div>
+              <p className="text-xs uppercase text-neutral-500 mb-3">
+                Professional categories
+              </p>
+              <div className="mb-8 flex flex-wrap gap-2">
+                {professionalCategories.length > 0 ? (
+                  professionalCategories.map((category) => (
+                    <span
+                      key={category}
+                      className="rounded-full bg-black px-3 py-2 text-xs text-white"
+                    >
+                      {category}
+                    </span>
+                  ))
+                ) : (
+                  <p className="text-sm text-neutral-500">
+                    No professional categories selected yet.
+                  </p>
+                )}
+              </div>
               <p className="text-xs uppercase text-neutral-500 mb-3">
                 {isProjectOwner ? "Interests" : "Skills and interests"}
               </p>
